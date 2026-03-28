@@ -10,18 +10,20 @@ import {
 import { useState, useRef } from "react";
 import { extractTimelineAudio } from "@/lib/media/mediabunny";
 import { useEditor } from "@/hooks/use-editor";
-import { DEFAULT_TEXT_ELEMENT } from "@/constants/text-constants";
 import {
 	DEFAULT_TRANSCRIPTION_SAMPLE_RATE,
 	TRANSCRIPTION_LANGUAGES,
 } from "@/constants/transcription-constants";
 import type {
+	CaptionChunk,
 	TranscriptionLanguage,
 	TranscriptionProgress,
 } from "@/types/transcription";
 import { transcriptionService } from "@/services/transcription/service";
 import { decodeAudioToFloat32 } from "@/lib/media/audio";
 import { buildCaptionChunks } from "@/lib/transcription/caption";
+import { insertCaptionChunksAsTextTrack } from "@/lib/subtitles/insert";
+import { parseSrt } from "@/lib/subtitles/srt";
 import { Spinner } from "@/components/ui/spinner";
 import { Label } from "@/components/ui/label";
 
@@ -31,7 +33,9 @@ export function Captions() {
 	const [isProcessing, setIsProcessing] = useState(false);
 	const [processingStep, setProcessingStep] = useState("");
 	const [error, setError] = useState<string | null>(null);
+	const [warning, setWarning] = useState<string | null>(null);
 	const containerRef = useRef<HTMLDivElement>(null);
+	const fileInputRef = useRef<HTMLInputElement>(null);
 	const editor = useEditor();
 
 	const handleProgress = (progress: TranscriptionProgress) => {
@@ -46,6 +50,7 @@ export function Captions() {
 		try {
 			setIsProcessing(true);
 			setError(null);
+			setWarning(null);
 			setProcessingStep("Extracting audio...");
 
 			const audioBlob = await extractTimelineAudio({
@@ -68,27 +73,7 @@ export function Captions() {
 
 			setProcessingStep("Generating captions...");
 			const captionChunks = buildCaptionChunks({ segments: result.segments });
-
-			const captionTrackId = editor.timeline.addTrack({
-				type: "text",
-				index: 0,
-			});
-
-			for (let i = 0; i < captionChunks.length; i++) {
-				const caption = captionChunks[i];
-				editor.timeline.insertElement({
-					placement: { mode: "explicit", trackId: captionTrackId },
-					element: {
-						...DEFAULT_TEXT_ELEMENT,
-						name: `Caption ${i + 1}`,
-						content: caption.text,
-						duration: caption.duration,
-						startTime: caption.startTime,
-						fontSize: 65,
-						fontWeight: "bold",
-					},
-				});
-			}
+			insertCaptionChunks({ captions: captionChunks });
 		} catch (error) {
 			console.error("Transcription failed:", error);
 			setError(
@@ -98,6 +83,76 @@ export function Captions() {
 			setIsProcessing(false);
 			setProcessingStep("");
 		}
+	};
+
+	const insertCaptionChunks = ({
+		captions,
+	}: {
+		captions: CaptionChunk[];
+	}) => {
+		const trackId = insertCaptionChunksAsTextTrack({
+			editor,
+			captions,
+		});
+
+		if (!trackId) {
+			throw new Error("No captions were generated");
+		}
+	};
+
+	const handleImportClick = () => {
+		fileInputRef.current?.click();
+	};
+
+	const handleImportFile = async ({
+		file,
+	}: {
+		file: File;
+	}) => {
+		try {
+			setIsProcessing(true);
+			setError(null);
+			setWarning(null);
+			setProcessingStep("Reading subtitle file...");
+
+			const input = await file.text();
+			const result = parseSrt({ input });
+
+			if (result.captions.length === 0) {
+				throw new Error("No valid subtitle cues were found in the .srt file");
+			}
+
+			setProcessingStep("Importing subtitles...");
+			insertCaptionChunks({ captions: result.captions });
+
+			if (result.skippedCueCount > 0) {
+				setWarning(
+					`Imported ${result.captions.length} subtitle cue(s) and skipped ${result.skippedCueCount} malformed cue(s).`,
+				);
+			}
+		} catch (error) {
+			console.error("Subtitle import failed:", error);
+			setError(
+				error instanceof Error ? error.message : "An unexpected error occurred",
+			);
+		} finally {
+			setIsProcessing(false);
+			setProcessingStep("");
+		}
+	};
+
+	const handleFileChange = async ({
+		event,
+	}: {
+		event: React.ChangeEvent<HTMLInputElement>;
+	}) => {
+		const file = event.target.files?.[0];
+		if (event.target) {
+			event.target.value = "";
+		}
+		if (!file) return;
+
+		await handleImportFile({ file });
 	};
 
 	const handleLanguageChange = ({ value }: { value: string }) => {
@@ -115,6 +170,14 @@ export function Captions() {
 
 	return (
 		<PanelView title="Captions" ref={containerRef}>
+			<input
+				ref={fileInputRef}
+				type="file"
+				accept=".srt"
+				className="hidden"
+				onChange={(event) => void handleFileChange({ event })}
+			/>
+
 			<div className="flex flex-col gap-3">
 				<Label>Language</Label>
 				<Select
@@ -141,15 +204,30 @@ export function Captions() {
 						<p className="text-destructive text-sm">{error}</p>
 					</div>
 				)}
+				{warning && (
+					<div className="rounded-md border border-amber-500/20 bg-amber-500/10 p-3">
+						<p className="text-sm text-amber-700">{warning}</p>
+					</div>
+				)}
 
-				<Button
-					className="w-full"
-					onClick={handleGenerateTranscript}
-					disabled={isProcessing}
-				>
-					{isProcessing && <Spinner className="mr-1" />}
-					{isProcessing ? processingStep : "Generate transcript"}
-				</Button>
+				<div className="flex gap-2">
+					<Button
+						className="flex-1"
+						onClick={handleGenerateTranscript}
+						disabled={isProcessing}
+					>
+						{isProcessing && <Spinner className="mr-1" />}
+						{isProcessing ? processingStep : "Generate transcript"}
+					</Button>
+					<Button
+						variant="outline"
+						className="flex-1"
+						onClick={handleImportClick}
+						disabled={isProcessing}
+					>
+						Import .srt
+					</Button>
+				</div>
 			</div>
 		</PanelView>
 	);
