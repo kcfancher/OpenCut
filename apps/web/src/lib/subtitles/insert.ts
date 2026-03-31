@@ -1,11 +1,11 @@
 import type { EditorCore } from "@/core";
-import { DEFAULT_TEXT_ELEMENT } from "@/constants/text-constants";
 import {
 	AddTrackCommand,
 	BatchCommand,
 	InsertElementCommand,
 } from "@/lib/commands";
 import type { CaptionChunk } from "@/types/transcription";
+import { buildSubtitleTextElement } from "./build-subtitle-text-element";
 
 export function insertCaptionChunksAsTextTrack({
 	editor,
@@ -21,21 +21,18 @@ export function insertCaptionChunksAsTextTrack({
 	const addTrackCommand = new AddTrackCommand("text", 0);
 	const trackId = addTrackCommand.getTrackId();
 	const commands = [addTrackCommand];
+	const canvasSize = editor.project.getActive().settings.canvasSize;
 
 	for (let i = 0; i < captions.length; i++) {
 		const caption = captions[i];
 		commands.push(
 			new InsertElementCommand({
 				placement: { mode: "explicit", trackId },
-				element: {
-					...DEFAULT_TEXT_ELEMENT,
-					name: `Caption ${i + 1}`,
-					content: caption.text,
-					duration: caption.duration,
-					startTime: caption.startTime,
-					fontSize: 65,
-					fontWeight: "bold",
-				},
+				element: buildSubtitleTextElement({
+					index: i,
+					caption,
+					canvasSize,
+				}),
 			}),
 		);
 	}
