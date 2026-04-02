@@ -23,11 +23,7 @@ export function parseSubtitleFile({
 	}
 }
 
-function getFileExtension({
-	fileName,
-}: {
-	fileName: string;
-}): string {
+function getFileExtension({ fileName }: { fileName: string }): string {
 	const extension = fileName.split(".").pop();
 	return extension?.toLowerCase() ?? "";
 }

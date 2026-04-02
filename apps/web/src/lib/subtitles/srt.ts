@@ -5,11 +5,7 @@ const TIMESTAMP_SEPARATOR = /\s*-->\s*/;
 const TIMESTAMP_PATTERN =
 	/^(\d{2}:\d{2}:\d{2}[,.]\d{1,3})\s*-->\s*(\d{2}:\d{2}:\d{2}[,.]\d{1,3})/;
 
-export function parseSrt({
-	input,
-}: {
-	input: string;
-}): ParseSubtitleResult {
+export function parseSrt({ input }: { input: string }): ParseSubtitleResult {
 	const normalized = input.replace(/\r\n?/g, "\n").trim();
 	if (!normalized) {
 		return {
@@ -79,11 +75,7 @@ export function parseSrt({
 	};
 }
 
-function parseSrtTimestamp({
-	input,
-}: {
-	input: string;
-}): number {
+function parseSrtTimestamp({ input }: { input: string }): number {
 	const normalized = input.trim().replace(",", ".");
 	const match = normalized.match(/^(\d{2}):(\d{2}):(\d{2})\.(\d{1,3})$/);
 	if (!match) {
@@ -94,10 +86,7 @@ function parseSrtTimestamp({
 	const parsedHours = Number.parseInt(hours, 10);
 	const parsedMinutes = Number.parseInt(minutes, 10);
 	const parsedSeconds = Number.parseInt(seconds, 10);
-	const parsedMilliseconds = Number.parseInt(
-		milliseconds.padEnd(3, "0"),
-		10,
-	);
+	const parsedMilliseconds = Number.parseInt(milliseconds.padEnd(3, "0"), 10);
 
 	return (
 		parsedHours * 3600 +
