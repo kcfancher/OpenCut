@@ -7,7 +7,8 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
-import { useState, useRef } from "react";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useRef, useState } from "react";
 import { extractTimelineAudio } from "@/lib/media/mediabunny";
 import { useEditor } from "@/hooks/use-editor";
 import {
@@ -32,7 +33,10 @@ import {
 	SectionFields,
 } from "@/components/section";
 
+type CaptionsView = "generate" | "import";
+
 export function Captions() {
+	const [view, setView] = useState<CaptionsView>("generate");
 	const [selectedLanguage, setSelectedLanguage] =
 		useState<TranscriptionLanguage>("auto");
 	const [isProcessing, setIsProcessing] = useState(false);
@@ -90,11 +94,7 @@ export function Captions() {
 		}
 	};
 
-	const insertCaptionChunks = ({
-		captions,
-	}: {
-		captions: CaptionChunk[];
-	}) => {
+	const insertCaptionChunks = ({ captions }: { captions: CaptionChunk[] }) => {
 		const trackId = insertCaptionChunksAsTextTrack({
 			editor,
 			captions,
@@ -109,11 +109,7 @@ export function Captions() {
 		fileInputRef.current?.click();
 	};
 
-	const handleImportFile = async ({
-		file,
-	}: {
-		file: File;
-	}) => {
+	const handleImportFile = async ({ file }: { file: File }) => {
 		try {
 			setIsProcessing(true);
 			setError(null);
@@ -178,8 +174,18 @@ export function Captions() {
 
 	return (
 		<PanelView
-			title="Captions"
 			contentClassName="px-0 flex flex-col h-full"
+			actions={
+				<Tabs
+					value={view}
+					onValueChange={(value) => setView(value as CaptionsView)}
+				>
+					<TabsList>
+						<TabsTrigger value="generate">Generate</TabsTrigger>
+						<TabsTrigger value="import">Import</TabsTrigger>
+					</TabsList>
+				</Tabs>
+			}
 			ref={containerRef}
 		>
 			<input
@@ -189,63 +195,83 @@ export function Captions() {
 				className="hidden"
 				onChange={(event) => void handleFileChange({ event })}
 			/>
-			<Section showTopBorder={false} showBottomBorder={false} className="flex-1">
-				<SectionContent className="flex flex-col gap-4 h-full pt-1">
-					<SectionFields>
-						<SectionField label="Language">
-							<Select
-								value={selectedLanguage}
-								onValueChange={(value) => handleLanguageChange({ value })}
-							>
-								<SelectTrigger>
-									<SelectValue placeholder="Select a language" />
-								</SelectTrigger>
-								<SelectContent>
-									<SelectItem value="auto">Auto detect</SelectItem>
-									{TRANSCRIPTION_LANGUAGES.map((language) => (
-										<SelectItem key={language.code} value={language.code}>
-											{language.name}
-										</SelectItem>
-									))}
-								</SelectContent>
-							</Select>
-						</SectionField>
-					</SectionFields>
+			{view === "generate" && (
+				<Section
+					showTopBorder={false}
+					showBottomBorder={false}
+					className="flex-1"
+				>
+					<SectionContent className="flex flex-col gap-4 h-full pt-1">
+						<SectionFields>
+							<SectionField label="Language">
+								<Select
+									value={selectedLanguage}
+									onValueChange={(value) => handleLanguageChange({ value })}
+								>
+									<SelectTrigger>
+										<SelectValue placeholder="Select a language" />
+									</SelectTrigger>
+									<SelectContent>
+										<SelectItem value="auto">Auto detect</SelectItem>
+										{TRANSCRIPTION_LANGUAGES.map((language) => (
+											<SelectItem key={language.code} value={language.code}>
+												{language.name}
+											</SelectItem>
+										))}
+									</SelectContent>
+								</Select>
+							</SectionField>
+						</SectionFields>
 
-					{error && (
-						<div className="bg-destructive/10 border-destructive/20 rounded-md border p-3">
-							<p className="text-destructive text-sm">{error}</p>
-						</div>
-					)}
-					{warning && (
-						<div className="rounded-md border border-amber-500/20 bg-amber-500/10 p-3">
-							<p className="text-sm text-amber-700">{warning}</p>
-						</div>
-					)}
-				</SectionContent>
-			</Section>
-			<Section showBottomBorder={false} showTopBorder={false}>
-				<SectionContent>
-					<div className="flex gap-2">
 						<Button
-							className="flex-1"
+							className="mt-auto w-full"
 							onClick={handleGenerateTranscript}
 							disabled={isProcessing}
 						>
 							{isProcessing && <Spinner className="mr-1" />}
 							{isProcessing ? processingStep : "Generate transcript"}
 						</Button>
+						{error && (
+							<div className="bg-destructive/10 border-destructive/20 rounded-md border p-3">
+								<p className="text-destructive text-sm">{error}</p>
+							</div>
+						)}
+					</SectionContent>
+				</Section>
+			)}
+			{view === "import" && (
+				<Section
+					showTopBorder={false}
+					showBottomBorder={false}
+					className="flex-1"
+				>
+					<SectionContent className="flex flex-col gap-4 h-full pt-1">
+						<p className="text-muted-foreground text-sm">
+							Import an existing <code>.srt</code> subtitle file into the
+							timeline.
+						</p>
 						<Button
 							variant="outline"
-							className="flex-1"
+							className="mt-auto w-full"
 							onClick={handleImportClick}
 							disabled={isProcessing}
 						>
-							Import .srt
+							{isProcessing && <Spinner className="mr-1" />}
+							{isProcessing ? processingStep : "Import .srt"}
 						</Button>
-					</div>
-				</SectionContent>
-			</Section>
+						{error && (
+							<div className="bg-destructive/10 border-destructive/20 rounded-md border p-3">
+								<p className="text-destructive text-sm">{error}</p>
+							</div>
+						)}
+						{warning && (
+							<div className="rounded-md border border-amber-500/20 bg-amber-500/10 p-3">
+								<p className="text-sm text-amber-700">{warning}</p>
+							</div>
+						)}
+					</SectionContent>
+				</Section>
+			)}
 		</PanelView>
 	);
 }
