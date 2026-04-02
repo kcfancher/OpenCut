@@ -23,7 +23,7 @@ import { transcriptionService } from "@/services/transcription/service";
 import { decodeAudioToFloat32 } from "@/lib/media/audio";
 import { buildCaptionChunks } from "@/lib/transcription/caption";
 import { insertCaptionChunksAsTextTrack } from "@/lib/subtitles/insert";
-import { parseSrt } from "@/lib/subtitles/srt";
+import { parseSubtitleFile } from "@/lib/subtitles/parse";
 import { Spinner } from "@/components/ui/spinner";
 import {
 	Section,
@@ -121,7 +121,10 @@ export function Captions() {
 			setProcessingStep("Reading subtitle file...");
 
 			const input = await file.text();
-			const result = parseSrt({ input });
+			const result = parseSubtitleFile({
+				fileName: file.name,
+				input,
+			});
 
 			if (result.captions.length === 0) {
 				throw new Error("No valid subtitle cues were found in the .srt file");
