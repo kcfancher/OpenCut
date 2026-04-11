@@ -42,7 +42,7 @@ export function Captions() {
 	const [isProcessing, setIsProcessing] = useState(false);
 	const [processingStep, setProcessingStep] = useState("");
 	const [error, setError] = useState<string | null>(null);
-	const [warning, setWarning] = useState<string | null>(null);
+	const [warnings, setWarnings] = useState<string[]>([]);
 	const containerRef = useRef<HTMLDivElement>(null);
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const editor = useEditor();
@@ -59,7 +59,7 @@ export function Captions() {
 		try {
 			setIsProcessing(true);
 			setError(null);
-			setWarning(null);
+			setWarnings([]);
 			setProcessingStep("Extracting audio...");
 
 			const audioBlob = await extractTimelineAudio({
@@ -113,7 +113,7 @@ export function Captions() {
 		try {
 			setIsProcessing(true);
 			setError(null);
-			setWarning(null);
+			setWarnings([]);
 			setProcessingStep("Reading subtitle file...");
 
 			const input = await file.text();
@@ -123,16 +123,22 @@ export function Captions() {
 			});
 
 			if (result.captions.length === 0) {
-				throw new Error("No valid subtitle cues were found in the .srt file");
+				throw new Error(
+					"No valid subtitle cues were found in the subtitle file",
+				);
 			}
 
 			setProcessingStep("Importing subtitles...");
 			insertCaptionChunks({ captions: result.captions });
 
+			const nextWarnings = [...result.warnings];
 			if (result.skippedCueCount > 0) {
-				setWarning(
+				nextWarnings.unshift(
 					`Imported ${result.captions.length} subtitle cue(s) and skipped ${result.skippedCueCount} malformed cue(s).`,
 				);
+			}
+			if (nextWarnings.length > 0) {
+				setWarnings(nextWarnings);
 			}
 		} catch (error) {
 			console.error("Subtitle import failed:", error);
@@ -191,7 +197,7 @@ export function Captions() {
 			<input
 				ref={fileInputRef}
 				type="file"
-				accept=".srt"
+				accept=".srt,.ass"
 				className="hidden"
 				onChange={(event) => void handleFileChange({ event })}
 			/>
@@ -224,6 +230,7 @@ export function Captions() {
 						</SectionFields>
 
 						<Button
+							type="button"
 							className="mt-auto w-full"
 							onClick={handleGenerateTranscript}
 							disabled={isProcessing}
@@ -247,26 +254,31 @@ export function Captions() {
 				>
 					<SectionContent className="flex flex-col gap-4 h-full pt-1">
 						<p className="text-muted-foreground text-sm">
-							Import an existing <code>.srt</code> subtitle file into the
-							timeline.
+							Import an existing <code>.srt</code> or <code>.ass</code> subtitle
+							file into the timeline.
 						</p>
 						<Button
+							type="button"
 							variant="outline"
 							className="mt-auto w-full"
 							onClick={handleImportClick}
 							disabled={isProcessing}
 						>
 							{isProcessing && <Spinner className="mr-1" />}
-							{isProcessing ? processingStep : "Import .srt"}
+							{isProcessing ? processingStep : "Import subtitle file"}
 						</Button>
 						{error && (
 							<div className="bg-destructive/10 border-destructive/20 rounded-md border p-3">
 								<p className="text-destructive text-sm">{error}</p>
 							</div>
 						)}
-						{warning && (
+						{warnings.length > 0 && (
 							<div className="rounded-md border border-amber-500/20 bg-amber-500/10 p-3">
-								<p className="text-sm text-amber-700">{warning}</p>
+								<ul className="text-sm text-amber-700 space-y-1">
+									{warnings.map((warning) => (
+										<li key={warning}>{warning}</li>
+									))}
+								</ul>
 							</div>
 						)}
 					</SectionContent>

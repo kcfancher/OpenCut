@@ -1,10 +1,7 @@
-import type { CaptionChunk } from "@/lib/transcription/types";
+import { parseAss } from "./ass";
 import { parseSrt } from "./srt";
-
-export interface ParseSubtitleResult {
-	captions: CaptionChunk[];
-	skippedCueCount: number;
-}
+import type { ParseSubtitleResult } from "./types";
+export type { ParseSubtitleResult, SubtitleCue } from "./types";
 
 export function parseSubtitleFile({
 	fileName,
@@ -18,6 +15,8 @@ export function parseSubtitleFile({
 	switch (extension) {
 		case "srt":
 			return parseSrt({ input });
+		case "ass":
+			return parseAss({ input });
 		default:
 			throw new Error("Unsupported subtitle format");
 	}

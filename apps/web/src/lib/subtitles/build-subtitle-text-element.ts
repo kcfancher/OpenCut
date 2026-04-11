@@ -1,8 +1,12 @@
 import { FONT_SIZE_SCALE_REFERENCE } from "@/constants/text-constants";
-import { measureTextBlock } from "@/lib/text/layout";
+import {
+	getTextVisualRect,
+	measureTextBlock,
+	setCanvasLetterSpacing,
+} from "@/lib/text/layout";
 import { DEFAULTS } from "@/lib/timeline/defaults";
 import type { CreateTextElement } from "@/lib/timeline";
-import type { CaptionChunk } from "@/lib/transcription/types";
+import type { SubtitleCue, SubtitleStyleOverrides } from "./types";
 
 const SUBTITLE_MAX_WIDTH_RATIO = 0.8;
 const SUBTITLE_BOTTOM_MARGIN_RATIO = 0.05;
@@ -75,22 +79,165 @@ function measureWrappedTextBlock({
 	ctx,
 	content,
 	canvasHeight,
+	textAlign,
+	background,
+	fontSize,
+	lineHeight,
 }: {
 	ctx: CanvasRenderingContext2D;
 	content: string;
 	canvasHeight: number;
+	textAlign: CreateTextElement["textAlign"];
+	background: CreateTextElement["background"];
+	fontSize: number;
+	lineHeight: number;
 }) {
-	const scaledFontSize =
-		SUBTITLE_FONT_SIZE * (canvasHeight / FONT_SIZE_SCALE_REFERENCE);
-	const lineHeight = (DEFAULTS.text.lineHeight ?? 1.2) * scaledFontSize;
+	const scaledFontSize = fontSize * (canvasHeight / FONT_SIZE_SCALE_REFERENCE);
+	const lineHeightPx = lineHeight * scaledFontSize;
 	const lines = content.split("\n");
 	const lineMetrics = lines.map((line) => ctx.measureText(line));
 
-	return measureTextBlock({
+	const block = measureTextBlock({
 		lineMetrics,
-		lineHeightPx: lineHeight,
+		lineHeightPx,
 		fallbackFontSize: scaledFontSize,
 	});
+	const visualRect = getTextVisualRect({
+		textAlign,
+		block,
+		background,
+		fontSizeRatio: fontSize / DEFAULTS.text.element.fontSize,
+	});
+
+	return {
+		block,
+		visualRect,
+	};
+}
+
+function resolveSubtitleStyle({
+	style,
+}: {
+	style: SubtitleStyleOverrides | undefined;
+}): {
+	fontFamily: string;
+	fontSize: number;
+	color: string;
+	textAlign: CreateTextElement["textAlign"];
+	fontWeight: CreateTextElement["fontWeight"];
+	fontStyle: CreateTextElement["fontStyle"];
+	textDecoration: CreateTextElement["textDecoration"];
+	letterSpacing: number;
+	lineHeight: number;
+	background: CreateTextElement["background"];
+	placement: NonNullable<SubtitleStyleOverrides["placement"]>;
+} {
+	return {
+		fontFamily: style?.fontFamily ?? DEFAULTS.text.element.fontFamily,
+		fontSize: style?.fontSize ?? SUBTITLE_FONT_SIZE,
+		color: style?.color ?? DEFAULTS.text.element.color,
+		textAlign: style?.textAlign ?? "center",
+		fontWeight: style?.fontWeight ?? "bold",
+		fontStyle: style?.fontStyle ?? DEFAULTS.text.element.fontStyle,
+		textDecoration:
+			style?.textDecoration ?? DEFAULTS.text.element.textDecoration,
+		letterSpacing: style?.letterSpacing ?? DEFAULTS.text.letterSpacing,
+		lineHeight: style?.lineHeight ?? DEFAULTS.text.lineHeight,
+		background: {
+			...DEFAULTS.text.element.background,
+			enabled: false,
+			...(style?.background ?? {}),
+		},
+		placement: {
+			verticalAlign: style?.placement?.verticalAlign ?? "bottom",
+			marginLeftRatio: style?.placement?.marginLeftRatio,
+			marginRightRatio: style?.placement?.marginRightRatio,
+			marginVerticalRatio: style?.placement?.marginVerticalRatio,
+		},
+	};
+}
+
+function resolveTargetWidth({
+	canvasWidth,
+	placement,
+}: {
+	canvasWidth: number;
+	placement: ReturnType<typeof resolveSubtitleStyle>["placement"];
+}): number {
+	const leftRatio = placement.marginLeftRatio ?? 0;
+	const rightRatio = placement.marginRightRatio ?? 0;
+	const hasExplicitMargins = leftRatio > 0 || rightRatio > 0;
+	if (!hasExplicitMargins) {
+		return canvasWidth * SUBTITLE_MAX_WIDTH_RATIO;
+	}
+
+	const availableWidth = canvasWidth * (1 - leftRatio - rightRatio);
+	return Math.max(0, availableWidth);
+}
+
+function resolvePositionX({
+	canvasWidth,
+	textAlign,
+	placement,
+	visualRect,
+}: {
+	canvasWidth: number;
+	textAlign: CreateTextElement["textAlign"];
+	placement: ReturnType<typeof resolveSubtitleStyle>["placement"];
+	visualRect: { left: number; width: number };
+}): number {
+	const leftMargin = canvasWidth * (placement.marginLeftRatio ?? 0);
+	const rightMargin = canvasWidth * (placement.marginRightRatio ?? 0);
+	const canvasCenterX = canvasWidth / 2;
+
+	if (textAlign === "left") {
+		return leftMargin - visualRect.left - canvasCenterX;
+	}
+
+	if (textAlign === "right") {
+		return (
+			canvasWidth -
+			rightMargin -
+			(visualRect.left + visualRect.width) -
+			canvasCenterX
+		);
+	}
+
+	const availableWidth = canvasWidth - leftMargin - rightMargin;
+	const targetCenterX = leftMargin + availableWidth / 2;
+	return (
+		targetCenterX - (visualRect.left + visualRect.width / 2) - canvasCenterX
+	);
+}
+
+function resolvePositionY({
+	canvasHeight,
+	placement,
+	visualRect,
+}: {
+	canvasHeight: number;
+	placement: ReturnType<typeof resolveSubtitleStyle>["placement"];
+	visualRect: { top: number; height: number };
+}): number {
+	const margin =
+		canvasHeight *
+		(placement.marginVerticalRatio ?? SUBTITLE_BOTTOM_MARGIN_RATIO);
+	const canvasCenterY = canvasHeight / 2;
+
+	if (placement.verticalAlign === "top") {
+		return margin - visualRect.top - canvasCenterY;
+	}
+
+	if (placement.verticalAlign === "middle") {
+		const targetCenterY = canvasHeight / 2;
+		return (
+			targetCenterY - (visualRect.top + visualRect.height / 2) - canvasCenterY
+		);
+	}
+
+	return (
+		canvasHeight - margin - (visualRect.top + visualRect.height) - canvasCenterY
+	);
 }
 
 export function buildSubtitleTextElement({
@@ -99,41 +246,59 @@ export function buildSubtitleTextElement({
 	canvasSize,
 }: {
 	index: number;
-	caption: CaptionChunk;
+	caption: SubtitleCue;
 	canvasSize: { width: number; height: number };
 }): CreateTextElement {
 	const ctx = createMeasurementContext();
-	const fontFamily = quoteFontFamily({
-		fontFamily: DEFAULTS.text.element.fontFamily,
+	const style = resolveSubtitleStyle({
+		style: caption.style,
 	});
-	const fontWeight = "bold";
-	const fontStyle =
-		DEFAULTS.text.element.fontStyle === "italic" ? "italic" : "normal";
+	const fontFamily = quoteFontFamily({
+		fontFamily: style.fontFamily,
+	});
+	const fontWeight = style.fontWeight;
+	const fontStyle = style.fontStyle === "italic" ? "italic" : "normal";
 	const scaledFontSize =
-		SUBTITLE_FONT_SIZE * (canvasSize.height / FONT_SIZE_SCALE_REFERENCE);
+		style.fontSize * (canvasSize.height / FONT_SIZE_SCALE_REFERENCE);
 	const fontString = `${fontStyle} ${fontWeight} ${scaledFontSize}px ${fontFamily}, sans-serif`;
-	const maxWidth = canvasSize.width * SUBTITLE_MAX_WIDTH_RATIO;
+	const maxWidth = resolveTargetWidth({
+		canvasWidth: canvasSize.width,
+		placement: style.placement,
+	});
 
 	let content = caption.text;
-	let blockHeight = scaledFontSize;
+	let positionX = 0;
+	let positionY = 0;
 
 	if (ctx) {
 		ctx.font = fontString;
+		setCanvasLetterSpacing({ ctx, letterSpacingPx: style.letterSpacing });
 		content = wrapSubtitleText({
 			ctx,
 			text: caption.text,
 			maxWidth,
 		});
-		blockHeight = measureWrappedTextBlock({
+		const measurement = measureWrappedTextBlock({
 			ctx,
 			content,
 			canvasHeight: canvasSize.height,
-		}).height;
+			textAlign: style.textAlign,
+			background: style.background,
+			fontSize: style.fontSize,
+			lineHeight: style.lineHeight,
+		});
+		positionX = resolvePositionX({
+			canvasWidth: canvasSize.width,
+			textAlign: style.textAlign,
+			placement: style.placement,
+			visualRect: measurement.visualRect,
+		});
+		positionY = resolvePositionY({
+			canvasHeight: canvasSize.height,
+			placement: style.placement,
+			visualRect: measurement.visualRect,
+		});
 	}
-
-	const bottomMargin = canvasSize.height * SUBTITLE_BOTTOM_MARGIN_RATIO;
-	const centerY = canvasSize.height - bottomMargin - blockHeight / 2;
-	const positionY = centerY - canvasSize.height / 2;
 
 	return {
 		...DEFAULTS.text.element,
@@ -141,16 +306,20 @@ export function buildSubtitleTextElement({
 		content,
 		duration: caption.duration,
 		startTime: caption.startTime,
-		fontSize: SUBTITLE_FONT_SIZE,
-		fontWeight,
-		background: {
-			...DEFAULTS.text.element.background,
-			enabled: false,
-		},
+		fontSize: style.fontSize,
+		fontFamily: style.fontFamily,
+		color: style.color,
+		textAlign: style.textAlign,
+		fontWeight: style.fontWeight,
+		fontStyle: style.fontStyle,
+		textDecoration: style.textDecoration,
+		letterSpacing: style.letterSpacing,
+		lineHeight: style.lineHeight,
+		background: style.background,
 		transform: {
 			...DEFAULTS.text.element.transform,
 			position: {
-				x: 0,
+				x: positionX,
 				y: positionY,
 			},
 		},

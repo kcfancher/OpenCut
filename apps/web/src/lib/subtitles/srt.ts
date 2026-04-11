@@ -1,5 +1,4 @@
-import type { CaptionChunk } from "@/lib/transcription/types";
-import type { ParseSubtitleResult } from "./parse";
+import type { ParseSubtitleResult, SubtitleCue } from "./types";
 
 const TIMESTAMP_SEPARATOR = /\s*-->\s*/;
 const TIMESTAMP_PATTERN =
@@ -11,11 +10,12 @@ export function parseSrt({ input }: { input: string }): ParseSubtitleResult {
 		return {
 			captions: [],
 			skippedCueCount: 0,
+			warnings: [],
 		};
 	}
 
 	const blocks = normalized.split(/\n{2,}/);
-	const cues: CaptionChunk[] = [];
+	const cues: SubtitleCue[] = [];
 	let skippedCueCount = 0;
 
 	for (const block of blocks) {
@@ -72,6 +72,7 @@ export function parseSrt({ input }: { input: string }): ParseSubtitleResult {
 	return {
 		captions: cues,
 		skippedCueCount,
+		warnings: [],
 	};
 }
 
