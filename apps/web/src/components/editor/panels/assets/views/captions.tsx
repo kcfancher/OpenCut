@@ -259,13 +259,12 @@ export function Captions() {
 						</p>
 						<Button
 							type="button"
-							variant="outline"
 							className="mt-auto w-full"
 							onClick={handleImportClick}
 							disabled={isProcessing}
 						>
 							{isProcessing && <Spinner className="mr-1" />}
-							{isProcessing ? processingStep : "Import subtitle file"}
+							{isProcessing ? processingStep : "Import subtitles"}
 						</Button>
 						{error && (
 							<div className="bg-destructive/10 border-destructive/20 rounded-md border p-3">
