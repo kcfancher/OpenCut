@@ -1,14 +1,15 @@
 import { EditorCore } from "@/core";
 import {
-	getChannel,
-	getChannelValueAtTime,
+	hasKeyframesForPath,
+	getKeyframeById,
 	removeElementKeyframe,
+	resolveAnimationPathValueAtTime,
 	resolveAnimationTarget,
 } from "@/lib/animation";
-import { Command } from "@/lib/commands/base-command";
-import { updateElementInTracks } from "@/lib/timeline";
+import { Command, type CommandResult } from "@/lib/commands/base-command";
+import { updateElementInSceneTracks } from "@/lib/timeline";
 import type { AnimationPath, AnimationValue } from "@/lib/animation/types";
-import type { TimelineElement, TimelineTrack } from "@/lib/timeline";
+import type { SceneTracks, TimelineElement } from "@/lib/timeline";
 
 function sampleValueBeforeRemoval({
 	element,
@@ -19,17 +20,6 @@ function sampleValueBeforeRemoval({
 	propertyPath: AnimationPath;
 	keyframeId: string;
 }): AnimationValue | null {
-	const channel = getChannel({
-		animations: element.animations,
-		propertyPath,
-	});
-	const keyframe = channel?.keyframes.find(
-		(candidate) => candidate.id === keyframeId,
-	);
-	if (!channel || !keyframe) {
-		return null;
-	}
-
 	const target = resolveAnimationTarget({ element, path: propertyPath });
 	if (!target) {
 		return null;
@@ -39,9 +29,19 @@ function sampleValueBeforeRemoval({
 		return null;
 	}
 
-	return getChannelValueAtTime({
-		channel,
-		time: keyframe.time,
+	const keyframe = getKeyframeById({
+		animations: element.animations,
+		propertyPath,
+		keyframeId,
+	});
+	if (!keyframe) {
+		return null;
+	}
+
+	return resolveAnimationPathValueAtTime({
+		animations: element.animations,
+		propertyPath,
+		localTime: keyframe.time,
 		fallbackValue: baseValue,
 	});
 }
@@ -72,19 +72,21 @@ function removeKeyframeAndPersist({
 		keyframeId,
 	});
 
-	const isChannelNowEmpty =
-		getChannel({ animations: nextAnimations, propertyPath }) === undefined;
+	const isChannelNowEmpty = !hasKeyframesForPath({
+		animations: nextAnimations,
+		propertyPath,
+	});
 	const shouldPersistToBase = isChannelNowEmpty && valueBefore !== null;
 
 	const baseElement = shouldPersistToBase
-		? target.setBaseValue(valueBefore)
+		? target.setBaseValue({ value: valueBefore })
 		: element;
 
 	return { ...baseElement, animations: nextAnimations };
 }
 
 export class RemoveKeyframeCommand extends Command {
-	private savedState: TimelineTrack[] | null = null;
+	private savedState: SceneTracks | null = null;
 	private readonly trackId: string;
 	private readonly elementId: string;
 	private readonly propertyPath: AnimationPath;
@@ -108,11 +110,11 @@ export class RemoveKeyframeCommand extends Command {
 		this.keyframeId = keyframeId;
 	}
 
-	execute(): void {
+	execute(): CommandResult | undefined {
 		const editor = EditorCore.getInstance();
-		this.savedState = editor.timeline.getTracks();
+		this.savedState = editor.scenes.getActiveScene().tracks;
 
-		const updatedTracks = updateElementInTracks({
+		const updatedTracks = updateElementInSceneTracks({
 			tracks: this.savedState,
 			trackId: this.trackId,
 			elementId: this.elementId,
@@ -125,6 +127,7 @@ export class RemoveKeyframeCommand extends Command {
 		});
 
 		editor.timeline.updateTracks(updatedTracks);
+		return undefined;
 	}
 
 	undo(): void {

@@ -1,69 +1,55 @@
 import { Command, type CommandResult } from "@/lib/commands/base-command";
-import type { TimelineTrack } from "@/lib/timeline";
+import type { SceneTracks } from "@/lib/timeline";
 import { EditorCore } from "@/core";
-import { rippleShiftElements } from "@/lib/timeline";
+import type { TimelineTrack } from "@/lib/timeline";
+
+function removeTrackElements<TTrack extends TimelineTrack>({
+	track,
+	elements,
+}: {
+	track: TTrack;
+	elements: { trackId: string; elementId: string }[];
+}): TTrack {
+	const nextElements = track.elements.filter(
+		(element) =>
+			!elements.some(
+				(target) =>
+					target.trackId === track.id && target.elementId === element.id,
+			),
+	);
+
+	return { ...track, elements: nextElements } as TTrack;
+}
 
 export class DeleteElementsCommand extends Command {
-	private savedState: TimelineTrack[] | null = null;
+	private savedState: SceneTracks | null = null;
 	private readonly elements: { trackId: string; elementId: string }[];
-	private readonly rippleEnabled: boolean;
 
 	constructor({
 		elements,
-		rippleEnabled = false,
 	}: {
 		elements: { trackId: string; elementId: string }[];
-		rippleEnabled?: boolean;
 	}) {
 		super();
 		this.elements = elements;
-		this.rippleEnabled = rippleEnabled;
 	}
 
-	execute(): CommandResult {
+	execute(): CommandResult | undefined {
 		const editor = EditorCore.getInstance();
-		this.savedState = editor.timeline.getTracks();
+		this.savedState = editor.scenes.getActiveScene().tracks;
 
-		const updatedTracks = this.savedState.map((track) => {
-				const elementsToDeleteOnTrack = this.elements.filter(
-					(target) => target.trackId === track.id,
-				);
-				const hasElementsToDelete = elementsToDeleteOnTrack.length > 0;
-
-				if (!hasElementsToDelete) {
-					return track;
-				}
-
-				const deletedElementInfos = elementsToDeleteOnTrack
-					.map((target) =>
-						track.elements.find((element) => element.id === target.elementId),
-					)
-					.filter((element): element is NonNullable<typeof element> => element !== undefined)
-					.map((element) => ({ startTime: element.startTime, duration: element.duration }));
-
-				let elements = track.elements.filter(
-					(element) =>
-						!this.elements.some(
-							(target) =>
-								target.trackId === track.id && target.elementId === element.id,
-						),
-				);
-
-				if (this.rippleEnabled && deletedElementInfos.length > 0) {
-					const sortedByStartDesc = [...deletedElementInfos].sort(
-						(a, b) => b.startTime - a.startTime,
-					);
-					for (const { startTime, duration } of sortedByStartDesc) {
-						elements = rippleShiftElements({
-							elements,
-							afterTime: startTime,
-							shiftAmount: duration,
-						});
-					}
-				}
-
-				return { ...track, elements } as typeof track;
-			});
+		const updatedTracks: SceneTracks = {
+			overlay: this.savedState.overlay.map((track) =>
+				removeTrackElements({ track, elements: this.elements }),
+			),
+			main: removeTrackElements({
+				track: this.savedState.main,
+				elements: this.elements,
+			}),
+			audio: this.savedState.audio.map((track) =>
+				removeTrackElements({ track, elements: this.elements }),
+			),
+		};
 
 		editor.timeline.updateTracks(updatedTracks);
 

@@ -1,19 +1,20 @@
-import { Command } from "@/lib/commands/base-command";
+import { Command, type CommandResult } from "@/lib/commands/base-command";
 import { EditorCore } from "@/core";
 import { toast } from "sonner";
 import type { MediaAsset } from "@/lib/media/types";
 import { generateUUID } from "@/utils/id";
 import { storageService } from "@/services/storage/service";
+import type { FrameRate } from "opencut-wasm";
 import { hasMediaId } from "@/lib/timeline/element-utils";
-import { getHighestImportedVideoFps } from "@/lib/fps/utils";
+import { frameRatesEqual, getHighestImportedVideoFps } from "@/lib/fps/utils";
 import { UpdateProjectSettingsCommand } from "@/lib/commands/project";
 
 export class AddMediaAssetCommand extends Command {
 	private assetId: string;
 	private savedAssets: MediaAsset[] | null = null;
 	private createdAsset: MediaAsset | null = null;
-	private previousProjectFps: number | null = null;
-	private appliedProjectFps: number | null = null;
+	private previousProjectFps: FrameRate | null = null;
+	private appliedProjectFps: FrameRate | null = null;
 
 	constructor(
 		private projectId: string,
@@ -23,7 +24,7 @@ export class AddMediaAssetCommand extends Command {
 		this.assetId = generateUUID();
 	}
 
-	execute(): void {
+	execute(): CommandResult | undefined {
 		const editor = EditorCore.getInstance();
 		this.savedAssets = [...editor.media.getAssets()];
 
@@ -53,11 +54,15 @@ export class AddMediaAssetCommand extends Command {
 					assets: currentAssets.filter((asset) => asset.id !== this.assetId),
 				});
 
-				const currentTracks = editor.timeline.getTracks();
+				const currentTracks = editor.scenes.getActiveScene().tracks;
 				const orphanedElements: Array<{ trackId: string; elementId: string }> =
 					[];
 
-				for (const track of currentTracks) {
+				for (const track of [
+					...currentTracks.overlay,
+					currentTracks.main,
+					...currentTracks.audio,
+				]) {
 					for (const element of track.elements) {
 						if (hasMediaId(element) && element.mediaId === this.assetId) {
 							orphanedElements.push({
@@ -80,6 +85,8 @@ export class AddMediaAssetCommand extends Command {
 					});
 				}
 			});
+
+		return undefined;
 	}
 
 	undo(): void {
@@ -110,14 +117,15 @@ export class AddMediaAssetCommand extends Command {
 
 		const activeProject = editor.project.getActiveOrNull();
 		if (!activeProject) return;
-		if (activeProject.settings.fps !== this.appliedProjectFps) return;
+		if (!this.appliedProjectFps || !frameRatesEqual(activeProject.settings.fps, this.appliedProjectFps)) return;
 
 		const highestRemainingVideoFps = getHighestImportedVideoFps({
 			mediaAssets: editor.media.getAssets(),
 		});
+		const appliedFpsFloat = this.appliedProjectFps.numerator / this.appliedProjectFps.denominator;
 		if (
 			highestRemainingVideoFps !== null &&
-			highestRemainingVideoFps >= this.appliedProjectFps
+			highestRemainingVideoFps >= appliedFpsFloat
 		) {
 			return;
 		}

@@ -1,7 +1,7 @@
-import type { Bookmark, TimelineTrack } from "@/lib/timeline";
+import type { Bookmark, SceneTracks } from "@/lib/timeline";
 import { BASE_TIMELINE_PIXELS_PER_SECOND } from "@/lib/timeline/scale";
-import { BOOKMARK_TIME_EPSILON } from "@/lib/timeline/bookmarks";
 import { getElementKeyframes } from "@/lib/animation";
+import { TICKS_PER_SECOND } from "@/lib/wasm";
 
 export interface SnapPoint {
 	time: number;
@@ -29,7 +29,7 @@ export function findSnapPoints({
 	enableBookmarkSnapping = true,
 	enableKeyframeSnapping = true,
 }: {
-	tracks: Array<TimelineTrack>;
+	tracks: SceneTracks;
 	playheadTime: number;
 	excludeElementId?: string;
 	bookmarks?: Array<Bookmark>;
@@ -40,8 +40,9 @@ export function findSnapPoints({
 	enableKeyframeSnapping?: boolean;
 }): SnapPoint[] {
 	const snapPoints: SnapPoint[] = [];
+	const orderedTracks = [...tracks.overlay, tracks.main, ...tracks.audio];
 
-	for (const track of tracks) {
+	for (const track of orderedTracks) {
 		for (const element of track.elements) {
 			if (element.id === excludeElementId) continue;
 
@@ -85,7 +86,7 @@ export function findSnapPoints({
 		for (const bookmark of bookmarks) {
 			if (
 				excludeBookmarkTime != null &&
-				Math.abs(bookmark.time - excludeBookmarkTime) < BOOKMARK_TIME_EPSILON
+				bookmark.time === excludeBookmarkTime
 			) {
 				continue;
 			}
@@ -108,14 +109,14 @@ export function snapToNearestPoint({
 	snapThreshold?: number;
 }): SnapResult {
 	const pixelsPerSecond = BASE_TIMELINE_PIXELS_PER_SECOND * zoomLevel;
-	const thresholdInSeconds = snapThreshold / pixelsPerSecond;
+	const thresholdInTicks = (snapThreshold / pixelsPerSecond) * TICKS_PER_SECOND;
 
 	let closestSnapPoint: SnapPoint | null = null;
 	let closestDistance = Infinity;
 
 	for (const snapPoint of snapPoints) {
 		const distance = Math.abs(targetTime - snapPoint.time);
-		if (distance < thresholdInSeconds && distance < closestDistance) {
+		if (distance < thresholdInTicks && distance < closestDistance) {
 			closestDistance = distance;
 			closestSnapPoint = snapPoint;
 		}
@@ -140,7 +141,7 @@ export function snapElementEdge({
 }: {
 	targetTime: number;
 	elementDuration: number;
-	tracks: Array<TimelineTrack>;
+	tracks: SceneTracks;
 	playheadTime: number;
 	zoomLevel: number;
 	excludeElementId?: string;

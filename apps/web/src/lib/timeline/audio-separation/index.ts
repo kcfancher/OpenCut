@@ -1,4 +1,4 @@
-import { cloneAnimations, getChannel } from "@/lib/animation";
+import { cloneAnimations } from "@/lib/animation";
 import type { ElementAnimations } from "@/lib/animation/types";
 import type { MediaAsset } from "@/lib/media/types";
 import { DEFAULTS } from "@/lib/timeline/defaults";
@@ -8,6 +8,8 @@ import type {
 	AudioElement,
 	VideoElement,
 } from "../types";
+
+type MediaAudioState = Pick<MediaAsset, "hasAudio">;
 
 export function isSourceAudioEnabled({
 	element,
@@ -25,13 +27,10 @@ export function isSourceAudioSeparated({
 	return !isSourceAudioEnabled({ element });
 }
 
-export function canExtractSourceAudio({
-	element,
-	mediaAsset,
-}: {
-	element: TimelineElement;
-	mediaAsset: MediaAsset | null | undefined;
-}): element is VideoElement {
+export function canExtractSourceAudio(
+	element: TimelineElement,
+	mediaAsset: MediaAudioState | null | undefined,
+): element is VideoElement {
 	return (
 		element.type === "video" &&
 		isSourceAudioEnabled({ element }) &&
@@ -40,25 +39,17 @@ export function canExtractSourceAudio({
 	);
 }
 
-export function canRecoverSourceAudio({
-	element,
-}: {
-	element: TimelineElement;
-}): element is VideoElement {
+export function canRecoverSourceAudio(
+	element: TimelineElement,
+): element is VideoElement {
 	return element.type === "video" && isSourceAudioSeparated({ element });
 }
 
-export function canToggleSourceAudio({
-	element,
-	mediaAsset,
-}: {
-	element: TimelineElement;
-	mediaAsset: MediaAsset | null | undefined;
-}): element is VideoElement {
-	return (
-		canRecoverSourceAudio({ element }) ||
-		canExtractSourceAudio({ element, mediaAsset })
-	);
+export function canToggleSourceAudio(
+	element: TimelineElement,
+	mediaAsset: MediaAudioState | null | undefined,
+): element is VideoElement {
+	return canRecoverSourceAudio(element) || canExtractSourceAudio(element, mediaAsset);
 }
 
 export function doesElementHaveEnabledAudio({
@@ -66,7 +57,7 @@ export function doesElementHaveEnabledAudio({
 	mediaAsset,
 }: {
 	element: AudioElement | VideoElement;
-	mediaAsset?: MediaAsset | null;
+	mediaAsset?: MediaAudioState | null;
 }): boolean {
 	if (element.type === "audio") {
 		return true;
@@ -117,16 +108,27 @@ function cloneVolumeAnimations({
 }: {
 	animations: ElementAnimations | undefined;
 }): ElementAnimations | undefined {
-	const volumeChannel = getChannel({ animations, propertyPath: "volume" });
-	if (!volumeChannel) {
+	const volumeBinding = animations?.bindings.volume;
+	if (!volumeBinding) {
+		return undefined;
+	}
+
+	const subsetChannels = Object.fromEntries(
+		volumeBinding.components.flatMap((component) => {
+			const channel = animations?.channels[component.channelId];
+			return channel ? [[component.channelId, channel] as const] : [];
+		}),
+	);
+	if (Object.keys(subsetChannels).length === 0) {
 		return undefined;
 	}
 
 	return cloneAnimations({
 		animations: {
-			channels: {
-				volume: volumeChannel,
+			bindings: {
+				volume: volumeBinding,
 			},
+			channels: subsetChannels,
 		},
 		shouldRegenerateKeyframeIds: true,
 	});

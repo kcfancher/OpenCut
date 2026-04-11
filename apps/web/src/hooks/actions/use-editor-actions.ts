@@ -5,6 +5,7 @@ import { useTimelineStore } from "@/stores/timeline-store";
 import { useActionHandler } from "@/hooks/actions/use-action-handler";
 import { useEditor } from "../use-editor";
 import { useElementSelection } from "../timeline/element/use-element-selection";
+import { TICKS_PER_SECOND } from "@/lib/wasm";
 import { useKeyframeSelection } from "../timeline/element/use-keyframe-selection";
 import {
 	getElementsAtTime,
@@ -110,10 +111,11 @@ export function useEditorActions() {
 		"frame-step-forward",
 		() => {
 			const fps = editor.project.getActive().settings.fps;
+			const ticksPerFrame = Math.round(TICKS_PER_SECOND * fps.denominator / fps.numerator);
 			editor.playback.seek({
 				time: Math.min(
 					editor.timeline.getTotalDuration(),
-					editor.playback.getCurrentTime() + 1 / fps,
+					editor.playback.getCurrentTime() + ticksPerFrame,
 				),
 			});
 		},
@@ -124,8 +126,9 @@ export function useEditorActions() {
 		"frame-step-backward",
 		() => {
 			const fps = editor.project.getActive().settings.fps;
+			const ticksPerFrame = Math.round(TICKS_PER_SECOND * fps.denominator / fps.numerator);
 			editor.playback.seek({
-				time: Math.max(0, editor.playback.getCurrentTime() - 1 / fps),
+				time: Math.max(0, editor.playback.getCurrentTime() - ticksPerFrame),
 			});
 		},
 		undefined,
@@ -176,11 +179,12 @@ export function useEditorActions() {
 		"split",
 		() => {
 			const currentTime = editor.playback.getCurrentTime();
+			const tracks = editor.scenes.getActiveScene().tracks;
 			const elementsToSplit =
 				selectedElements.length > 0
 					? selectedElements
 					: getElementsAtTime({
-							tracks: editor.timeline.getTracks(),
+							tracks,
 							time: currentTime,
 						});
 
@@ -198,11 +202,12 @@ export function useEditorActions() {
 		"split-left",
 		() => {
 			const currentTime = editor.playback.getCurrentTime();
+			const tracks = editor.scenes.getActiveScene().tracks;
 			const elementsToSplit =
 				selectedElements.length > 0
 					? selectedElements
 					: getElementsAtTime({
-							tracks: editor.timeline.getTracks(),
+							tracks,
 							time: currentTime,
 						});
 
@@ -212,7 +217,6 @@ export function useEditorActions() {
 				elements: elementsToSplit,
 				splitTime: currentTime,
 				retainSide: "right",
-				rippleEnabled: rippleEditingEnabled,
 			});
 
 			if (rippleEditingEnabled && rightSideElements.length > 0) {
@@ -231,11 +235,12 @@ export function useEditorActions() {
 		"split-right",
 		() => {
 			const currentTime = editor.playback.getCurrentTime();
+			const tracks = editor.scenes.getActiveScene().tracks;
 			const elementsToSplit =
 				selectedElements.length > 0
 					? selectedElements
 					: getElementsAtTime({
-							tracks: editor.timeline.getTracks(),
+							tracks,
 							time: currentTime,
 						});
 
@@ -263,7 +268,6 @@ export function useEditorActions() {
 			}
 			editor.timeline.deleteElements({
 				elements: selectedElements,
-				rippleEnabled: rippleEditingEnabled,
 			});
 		},
 		undefined,
@@ -294,12 +298,7 @@ export function useEditorActions() {
 					null
 				);
 			})();
-			if (
-				!canToggleSourceAudio({
-					element: selectedElement.element,
-					mediaAsset,
-				})
-			) {
+			if (!canToggleSourceAudio(selectedElement.element, mediaAsset)) {
 				return;
 			}
 
@@ -314,7 +313,12 @@ export function useEditorActions() {
 	useActionHandler(
 		"select-all",
 		() => {
-			const allElements = editor.timeline.getTracks().flatMap((track) =>
+			const scene = editor.scenes.getActiveScene();
+			const allElements = [
+				...scene.tracks.overlay,
+				scene.tracks.main,
+				...scene.tracks.audio,
+			].flatMap((track) =>
 				track.elements.map((element) => ({
 					trackId: track.id,
 					elementId: element.id,

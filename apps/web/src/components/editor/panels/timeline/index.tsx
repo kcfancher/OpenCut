@@ -50,7 +50,7 @@ import {
 	getTimelineZoomMin,
 	getTimelinePaddingPx,
 } from "@/lib/timeline";
-import { BASE_TIMELINE_PIXELS_PER_SECOND } from "@/lib/timeline/scale";
+import { timelineTimeToPixels } from "@/lib/timeline/pixel-utils";
 import {
 	getTrackHeight,
 	getCumulativeHeightBefore,
@@ -58,7 +58,6 @@ import {
 } from "./track-layout";
 import { SELECTED_TRACK_ROW_CLASS } from "./theme";
 import { TIMELINE_HORIZONTAL_WHEEL_STEP_PX } from "./interaction";
-import { isMainTrack } from "@/lib/timeline/placement";
 import { TimelineToolbar } from "./timeline-toolbar";
 import { useElementSelection } from "@/hooks/timeline/element/use-element-selection";
 import { useTimelineSeek } from "@/hooks/timeline/use-timeline-seek";
@@ -112,7 +111,15 @@ export function Timeline() {
 	} = useElementSelection();
 	const editor = useEditor();
 	const timeline = editor.timeline;
-	const tracks = useEditor((editor) => editor.timeline.getTracks());
+	const scene = useEditor((currentEditor) => currentEditor.scenes.getActiveSceneOrNull());
+	const tracks = useMemo<TimelineTrack[]>(
+		() =>
+			scene
+				? [...scene.tracks.overlay, scene.tracks.main, ...scene.tracks.audio]
+				: [],
+		[scene],
+	);
+	const mainTrackId = scene?.tracks.main.id ?? null;
 	const seek = (time: number) => editor.playback.seek({ time });
 
 	const timelineRef = useRef<HTMLDivElement>(null);
@@ -340,8 +347,7 @@ export function Timeline() {
 
 	const containerWidth =
 		tracksContainerRef.current?.clientWidth || FALLBACK_CONTAINER_WIDTH;
-	const contentWidth =
-		timelineDuration * BASE_TIMELINE_PIXELS_PER_SECOND * zoomLevel;
+	const contentWidth = timelineTimeToPixels({ time: timelineDuration, zoomLevel });
 	const paddingPx = getTimelinePaddingPx({
 		containerWidth,
 		zoomLevel,
@@ -425,13 +431,13 @@ export function Timeline() {
 					/>
 					<DragLine
 						dropTarget={dropTarget}
-						tracks={timeline.getTracks()}
+						tracks={tracks}
 						isVisible={isDragOver && !dropTarget?.targetElement}
 						headerHeight={timelineHeaderHeight}
 					/>
 					<DragLine
 						dropTarget={dragDropTarget}
-						tracks={timeline.getTracks()}
+						tracks={tracks}
 						isVisible={dragState.isDragging}
 						headerHeight={timelineHeaderHeight}
 					/>
@@ -509,6 +515,7 @@ export function Timeline() {
 								{tracks.length > 0 && (
 									<TimelineTrackRows
 										dragElementId={dragState.elementId}
+										mainTrackId={mainTrackId}
 										zoomLevel={zoomLevel}
 										dragState={dragState}
 										tracksScrollRef={tracksScrollRef}
@@ -575,7 +582,14 @@ function TrackLabelsPanel({
 	hasHorizontalScrollbar: boolean;
 }) {
 	const editor = useEditor();
-	const tracks = useEditor((e) => e.timeline.getTracks());
+	const scene = useEditor((e) => e.scenes.getActiveSceneOrNull());
+	const tracks = useMemo<TimelineTrack[]>(
+		() =>
+			scene
+				? [...scene.tracks.overlay, scene.tracks.main, ...scene.tracks.audio]
+				: [],
+		[scene],
+	);
 	const { selectedElements } = useElementSelection();
 	const tracksWithSelection = useMemo(
 		() => new Set(selectedElements.map((el) => el.trackId)),
@@ -651,6 +665,7 @@ function TrackLabelsPanel({
 
 function TimelineTrackRows({
 	dragElementId,
+	mainTrackId,
 	zoomLevel,
 	dragState,
 	tracksScrollRef,
@@ -666,6 +681,7 @@ function TimelineTrackRows({
 	dropTarget,
 }: {
 	dragElementId: string | null;
+	mainTrackId: string | null;
 	zoomLevel: number;
 	dragState: ElementDragState;
 	tracksScrollRef: React.RefObject<HTMLDivElement | null>;
@@ -685,7 +701,14 @@ function TimelineTrackRows({
 	dropTarget: DropTarget | null;
 }) {
 	const timeline = useEditor((e) => e.timeline);
-	const tracks = useEditor((e) => e.timeline.getTracks());
+	const scene = useEditor((e) => e.scenes.getActiveSceneOrNull());
+	const tracks = useMemo<TimelineTrack[]>(
+		() =>
+			scene
+				? [...scene.tracks.overlay, scene.tracks.main, ...scene.tracks.audio]
+				: [],
+		[scene],
+	);
 	const { selectedElements } = useElementSelection();
 	const tracksWithSelection = useMemo(
 		() => new Set(selectedElements.map((el) => el.trackId)),
@@ -780,7 +803,7 @@ function TimelineTrackRows({
 								? "Show track"
 								: "Hide track"}
 						</ContextMenuItem>
-						{!isMainTrack(track) && (
+						{track.id !== mainTrackId && (
 							<ContextMenuItem
 								icon={<HugeiconsIcon icon={Delete02Icon} />}
 								onClick={(event: React.MouseEvent) => {

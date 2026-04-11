@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { AudioElement, VideoElement } from "@/lib/timeline";
+import { upsertElementKeyframe } from "@/lib/animation";
+import type { UploadAudioElement, VideoElement } from "@/lib/timeline";
 import {
 	buildSeparatedAudioElement,
 	doesElementHaveEnabledAudio,
@@ -25,32 +26,7 @@ describe("audio separation", () => {
 			volume: -6,
 			muted: true,
 			retime: { rate: 1.25, maintainPitch: true },
-			animations: {
-				channels: {
-					volume: {
-						valueKind: "number",
-						keyframes: [
-							{
-								id: "volume-keyframe",
-								time: 2,
-								value: -12,
-								interpolation: "linear",
-							},
-						],
-					},
-					opacity: {
-						valueKind: "number",
-						keyframes: [
-							{
-								id: "opacity-keyframe",
-								time: 1,
-								value: 0.5,
-								interpolation: "linear",
-							},
-						],
-					},
-				},
-			},
+			animations: buildAnimations(),
 		});
 
 		const separatedAudioElement = buildSeparatedAudioElement({
@@ -71,40 +47,23 @@ describe("audio separation", () => {
 			muted: true,
 			retime: { rate: 1.25, maintainPitch: true },
 		});
-		expect(Object.keys(separatedAudioElement.animations?.channels ?? {})).toEqual([
+		expect(Object.keys(separatedAudioElement.animations?.bindings ?? {})).toEqual([
 			"volume",
 		]);
+		expect(Object.keys(separatedAudioElement.animations?.channels ?? {})).toEqual([
+			"volume:value",
+		]);
 		expect(
-			separatedAudioElement.animations?.channels.volume?.keyframes[0]?.id,
+			separatedAudioElement.animations?.channels["volume:value"]?.keys[0]?.id,
 		).not.toBe("volume-keyframe");
 	});
 
 	test("skips source audio collection when the source clip is separated", () => {
-		const mediaAsset = {
-			id: "media-1",
-			type: "video",
-			name: "Clip",
-			size: 1,
-			lastModified: 1,
-			file: new File(["video"], "clip.mp4", { type: "video/mp4" }),
-			url: "blob:clip",
-			hasAudio: true,
-		};
+		const mediaAsset = { hasAudio: true };
 		const videoElement = buildVideoElement({
 			isSourceAudioEnabled: false,
 		});
-		const audioElement = {
-			id: "audio-1",
-			type: "audio",
-			sourceType: "upload",
-			mediaId: "audio-media-1",
-			name: "Detached audio",
-			duration: 5,
-			startTime: 0,
-			trimStart: 0,
-			trimEnd: 0,
-			volume: 0,
-		} as AudioElement;
+		const audioElement = buildAudioElement();
 
 		expect(
 			doesElementHaveEnabledAudio({
@@ -144,4 +103,42 @@ function buildVideoElement(
 		opacity: 1,
 		...overrides,
 	};
+}
+
+function buildAudioElement(
+	overrides: Partial<UploadAudioElement> = {},
+): UploadAudioElement {
+	return {
+		id: "audio-1",
+		type: "audio",
+		sourceType: "upload",
+		mediaId: "audio-media-1",
+		name: "Detached audio",
+		duration: 5,
+		startTime: 0,
+		trimStart: 0,
+		trimEnd: 0,
+		volume: 0,
+		...overrides,
+	} satisfies UploadAudioElement;
+}
+
+function buildAnimations() {
+	const withVolume = upsertElementKeyframe({
+		animations: undefined,
+		propertyPath: "volume",
+		time: 2,
+		value: -12,
+		interpolation: "linear",
+		keyframeId: "volume-keyframe",
+	});
+
+	return upsertElementKeyframe({
+		animations: withVolume,
+		propertyPath: "opacity",
+		time: 1,
+		value: 0.5,
+		interpolation: "linear",
+		keyframeId: "opacity-keyframe",
+	});
 }

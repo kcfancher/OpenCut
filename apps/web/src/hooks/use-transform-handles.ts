@@ -19,6 +19,7 @@ import {
 import { isVisualElement } from "@/lib/timeline/element-utils";
 import {
 	getElementLocalTime,
+	hasKeyframesForPath,
 	resolveTransformAtTime,
 	setChannel,
 } from "@/lib/animation";
@@ -131,7 +132,9 @@ export function useTransformHandles({
 	);
 
 	const selectedElements = useEditor((e) => e.selection.getSelectedElements());
-	const tracks = useEditor((e) => e.timeline.getRenderTracks());
+	const tracks = useEditor(
+		(e) => e.timeline.getPreviewTracks() ?? e.scenes.getActiveScene().tracks,
+	);
 	const currentTime = useEditor((e) => e.playback.getCurrentTime());
 	const currentTimeRef = useRef(currentTime);
 	currentTimeRef.current = currentTime;
@@ -213,8 +216,14 @@ export function useTransformHandles({
 			const baseWidth = bounds.width / resolvedTransform.scaleX;
 			const baseHeight = bounds.height / resolvedTransform.scaleY;
 			const shouldClearScaleAnimation =
-				!!element.animations?.channels["transform.scaleX"] ||
-				!!element.animations?.channels["transform.scaleY"];
+				hasKeyframesForPath({
+					animations: element.animations,
+					propertyPath: "transform.scaleX",
+				}) ||
+				hasKeyframesForPath({
+					animations: element.animations,
+					propertyPath: "transform.scaleY",
+				});
 			const animationsWithoutScale = shouldClearScaleAnimation
 				? setChannel({
 						animations: setChannel({
@@ -325,7 +334,10 @@ export function useTransformHandles({
 					? "transform.scaleX"
 					: "transform.scaleY";
 			const shouldClearScaleAnimation =
-				!!element.animations?.channels[propertyPath];
+				hasKeyframesForPath({
+					animations: element.animations,
+					propertyPath,
+				});
 			const animationsWithoutScale = shouldClearScaleAnimation
 				? setChannel({
 						animations: element.animations,

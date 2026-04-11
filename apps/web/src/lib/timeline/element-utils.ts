@@ -1,4 +1,4 @@
-import { DEFAULT_NEW_ELEMENT_DURATION_SECONDS } from "@/lib/timeline/creation";
+import { DEFAULT_NEW_ELEMENT_DURATION } from "@/lib/timeline/creation";
 import {
 	MASKABLE_ELEMENT_TYPES,
 	RETIMABLE_ELEMENT_TYPES,
@@ -13,6 +13,7 @@ import {
 	type CreateLibraryAudioElement,
 	type TextBackground,
 	type TextElement,
+	type SceneTracks,
 	type TimelineElement,
 	type TimelineTrack,
 	type AudioElement,
@@ -115,7 +116,7 @@ export function buildTextElement({
 		type: "text",
 		name: t.name ?? DEFAULTS.text.element.name,
 		content: t.content ?? DEFAULTS.text.element.content,
-		duration: t.duration ?? DEFAULT_NEW_ELEMENT_DURATION_SECONDS,
+		duration: t.duration ?? DEFAULT_NEW_ELEMENT_DURATION,
 		startTime,
 		trimStart: 0,
 		trimEnd: 0,
@@ -150,7 +151,7 @@ export function buildEffectElement({
 		name: capitalizeFirstLetter({ string: instance.type }),
 		effectType,
 		params: instance.params,
-		duration: duration ?? DEFAULT_NEW_ELEMENT_DURATION_SECONDS,
+		duration: duration ?? DEFAULT_NEW_ELEMENT_DURATION,
 		startTime,
 		trimStart: 0,
 		trimEnd: 0,
@@ -178,7 +179,7 @@ export function buildStickerElement({
 		stickerId,
 		intrinsicWidth,
 		intrinsicHeight,
-		duration: DEFAULT_NEW_ELEMENT_DURATION_SECONDS,
+		duration: DEFAULT_NEW_ELEMENT_DURATION,
 		startTime,
 		trimStart: 0,
 		trimEnd: 0,
@@ -208,7 +209,7 @@ export function buildGraphicElement({
 		name: name ?? capitalizeFirstLetter({ string: instance.definitionId }),
 		definitionId: instance.definitionId,
 		params: { ...instance.params, ...(params ?? {}) } as ParamValues,
-		duration: DEFAULT_NEW_ELEMENT_DURATION_SECONDS,
+		duration: DEFAULT_NEW_ELEMENT_DURATION,
 		startTime,
 		trimStart: 0,
 		trimEnd: 0,
@@ -382,12 +383,13 @@ export function getElementsAtTime({
 	tracks,
 	time,
 }: {
-	tracks: TimelineTrack[];
+	tracks: SceneTracks;
 	time: number;
 }): { trackId: string; elementId: string }[] {
 	const result: { trackId: string; elementId: string }[] = [];
+	const orderedTracks = [...tracks.overlay, tracks.main, ...tracks.audio];
 
-	for (const track of tracks) {
+	for (const track of orderedTracks) {
 		for (const element of track.elements) {
 			const elementStart = element.startTime;
 			const elementEnd = element.startTime + element.duration;
@@ -404,10 +406,10 @@ export function getElementsAtTime({
 export function getElementFontFamilies({
 	tracks,
 }: {
-	tracks: TimelineTrack[];
+	tracks: SceneTracks;
 }): string[] {
 	const families = new Set<string>();
-	for (const track of tracks) {
+	for (const track of [...tracks.overlay, tracks.main, ...tracks.audio]) {
 		for (const element of track.elements) {
 			if (element.type === "text" && element.fontFamily) {
 				families.add(element.fontFamily);

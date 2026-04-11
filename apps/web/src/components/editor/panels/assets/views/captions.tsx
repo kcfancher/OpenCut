@@ -63,7 +63,7 @@ export function Captions() {
 			setProcessingStep("Extracting audio...");
 
 			const audioBlob = await extractTimelineAudio({
-				tracks: editor.timeline.getTracks(),
+				tracks: editor.scenes.getActiveScene().tracks,
 				mediaAssets: editor.media.getAssets(),
 				totalDuration: editor.timeline.getTotalDuration(),
 			});
@@ -274,7 +274,7 @@ export function Captions() {
 						)}
 						{warnings.length > 0 && (
 							<div className="rounded-md border border-amber-500/20 bg-amber-500/10 p-3">
-								<ul className="text-sm text-amber-700 space-y-1">
+								<ul className="space-y-1 text-sm text-amber-700">
 									{warnings.map((warning) => (
 										<li key={warning}>{warning}</li>
 									))}

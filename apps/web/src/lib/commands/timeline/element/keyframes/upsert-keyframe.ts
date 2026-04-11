@@ -1,8 +1,8 @@
 import { EditorCore } from "@/core";
-import { Command } from "@/lib/commands/base-command";
+import { Command, type CommandResult } from "@/lib/commands/base-command";
 import { resolveAnimationTarget, upsertPathKeyframe } from "@/lib/animation";
-import { updateElementInTracks } from "@/lib/timeline";
-import type { TimelineTrack } from "@/lib/timeline";
+import { updateElementInSceneTracks } from "@/lib/timeline";
+import type { SceneTracks } from "@/lib/timeline";
 import type {
 	AnimationPath,
 	AnimationInterpolation,
@@ -10,7 +10,7 @@ import type {
 } from "@/lib/animation/types";
 
 export class UpsertKeyframeCommand extends Command {
-	private savedState: TimelineTrack[] | null = null;
+	private savedState: SceneTracks | null = null;
 	private readonly trackId: string;
 	private readonly elementId: string;
 	private readonly propertyPath: AnimationPath;
@@ -46,11 +46,11 @@ export class UpsertKeyframeCommand extends Command {
 		this.keyframeId = keyframeId;
 	}
 
-	execute(): void {
+	execute(): CommandResult | undefined {
 		const editor = EditorCore.getInstance();
-		this.savedState = editor.timeline.getTracks();
+		this.savedState = editor.scenes.getActiveScene().tracks;
 
-		const updatedTracks = updateElementInTracks({
+		const updatedTracks = updateElementInSceneTracks({
 			tracks: this.savedState,
 			trackId: this.trackId,
 			elementId: this.elementId,
@@ -73,15 +73,16 @@ export class UpsertKeyframeCommand extends Command {
 						value: this.value,
 						interpolation: this.interpolation,
 						keyframeId: this.keyframeId,
-						valueKind: target.valueKind,
+						kind: target.kind,
 						defaultInterpolation: target.defaultInterpolation,
-						numericRange: target.numericRange,
+						coerceValue: target.coerceValue,
 					}),
 				};
 			},
 		});
 
 		editor.timeline.updateTracks(updatedTracks);
+		return undefined;
 	}
 
 	undo(): void {

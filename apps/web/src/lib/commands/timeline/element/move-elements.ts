@@ -1,25 +1,28 @@
-import { Command } from "@/lib/commands/base-command";
+import { Command, type CommandResult } from "@/lib/commands/base-command";
 import { EditorCore } from "@/core";
 import type {
-	TimelineTrack,
+	SceneTracks,
 	TimelineElement,
 	TrackType,
+	TimelineTrack,
 } from "@/lib/timeline";
 import {
 	buildEmptyTrack,
 	validateElementTrackCompatibility,
 	enforceMainTrackStart,
 } from "@/lib/timeline/placement";
-import { rippleShiftElements } from "@/lib/timeline/ripple-utils";
+import {
+	findTrackInSceneTracks,
+	updateTrackInSceneTracks,
+} from "@/lib/timeline/track-element-update";
 
 export class MoveElementCommand extends Command {
-	private savedState: TimelineTrack[] | null = null;
+	private savedState: SceneTracks | null = null;
 	private readonly sourceTrackId: string;
 	private readonly targetTrackId: string;
 	private readonly elementId: string;
 	private readonly newStartTime: number;
 	private readonly createTrack: { type: TrackType; index: number } | undefined;
-	private readonly rippleEnabled: boolean;
 
 	constructor({
 		sourceTrackId,
@@ -27,14 +30,12 @@ export class MoveElementCommand extends Command {
 		elementId,
 		newStartTime,
 		createTrack,
-		rippleEnabled = false,
 	}: {
 		sourceTrackId: string;
 		targetTrackId: string;
 		elementId: string;
 		newStartTime: number;
 		createTrack?: { type: TrackType; index: number };
-		rippleEnabled?: boolean;
 	}) {
 		super();
 		this.sourceTrackId = sourceTrackId;
@@ -42,16 +43,16 @@ export class MoveElementCommand extends Command {
 		this.elementId = elementId;
 		this.newStartTime = newStartTime;
 		this.createTrack = createTrack;
-		this.rippleEnabled = rippleEnabled;
 	}
 
-	execute(): void {
+	execute(): CommandResult | undefined {
 		const editor = EditorCore.getInstance();
-		this.savedState = editor.timeline.getTracks();
+		this.savedState = editor.scenes.getActiveScene().tracks;
 
-		const sourceTrack = this.savedState.find(
-			(track) => track.id === this.sourceTrackId,
-		);
+		const sourceTrack = findTrackInSceneTracks({
+			tracks: this.savedState,
+			trackId: this.sourceTrackId,
+		});
 		const element = sourceTrack?.elements.find(
 			(trackElement) => trackElement.id === this.elementId,
 		);
@@ -60,15 +61,21 @@ export class MoveElementCommand extends Command {
 			throw new Error("Source track or element not found");
 		}
 
-		let targetTrack = this.savedState.find((track) => track.id === this.targetTrackId);
+		let targetTrack = findTrackInSceneTracks({
+			tracks: this.savedState,
+			trackId: this.targetTrackId,
+		});
 		let tracksToUpdate = this.savedState;
 		if (!targetTrack && this.createTrack) {
 			const newTrack = buildEmptyTrack({
 				id: this.targetTrackId,
 				type: this.createTrack.type,
 			});
-			tracksToUpdate = [...this.savedState];
-			tracksToUpdate.splice(this.createTrack.index, 0, newTrack);
+			tracksToUpdate = insertTrackAtDisplayIndex({
+				tracks: this.savedState,
+				track: newTrack,
+				insertIndex: this.createTrack.index,
+			});
 			targetTrack = newTrack;
 		}
 		if (!targetTrack) {
@@ -99,41 +106,37 @@ export class MoveElementCommand extends Command {
 
 		const isSameTrack = this.sourceTrackId === this.targetTrackId;
 
-		const updatedTracks = tracksToUpdate.map((track): TimelineTrack => {
-			if (isSameTrack && track.id === this.sourceTrackId) {
-				return {
-					...track,
-					elements: track.elements.map((trackElement) =>
-						trackElement.id === this.elementId ? movedElement : trackElement,
-					),
-				} as typeof track;
-			}
-
-			if (track.id === this.sourceTrackId) {
-				const remainingElements = track.elements.filter(
-					(trackElement) => trackElement.id !== this.elementId,
-				);
-				const shiftedElements = this.rippleEnabled
-					? rippleShiftElements({
-							elements: remainingElements,
-							afterTime: element.startTime,
-							shiftAmount: element.duration,
-						})
-					: remainingElements;
-				return { ...track, elements: shiftedElements } as typeof track;
-			}
-
-			if (track.id === this.targetTrackId) {
-				return {
-					...track,
-					elements: [...track.elements, movedElement],
-				} as typeof track;
-			}
-
-			return track;
-		});
+		const updatedTracks = isSameTrack
+			? updateTrackInSceneTracks({
+					tracks: tracksToUpdate,
+					trackId: this.sourceTrackId,
+					update: (track) => ({
+						...track,
+						elements: track.elements.map((trackElement) =>
+							trackElement.id === this.elementId ? movedElement : trackElement,
+						),
+					}),
+				})
+			: updateTrackInSceneTracks({
+					tracks: updateTrackInSceneTracks({
+						tracks: tracksToUpdate,
+						trackId: this.sourceTrackId,
+						update: (track) => ({
+							...track,
+							elements: track.elements.filter(
+								(trackElement) => trackElement.id !== this.elementId,
+							),
+						}),
+					}),
+					trackId: this.targetTrackId,
+					update: (track) => ({
+						...track,
+						elements: [...track.elements, movedElement],
+					}),
+				});
 
 		editor.timeline.updateTracks(updatedTracks);
+		return undefined;
 	}
 
 	undo(): void {
@@ -142,4 +145,42 @@ export class MoveElementCommand extends Command {
 			editor.timeline.updateTracks(this.savedState);
 		}
 	}
+}
+
+function insertTrackAtDisplayIndex({
+	tracks,
+	track,
+	insertIndex,
+}: {
+	tracks: SceneTracks;
+	track: TimelineTrack;
+	insertIndex: number;
+}): SceneTracks {
+	if (track.type === "audio") {
+		const audioInsertIndex = Math.max(
+			0,
+			Math.min(insertIndex - tracks.overlay.length - 1, tracks.audio.length),
+		);
+		return {
+			...tracks,
+			audio: [
+				...tracks.audio.slice(0, audioInsertIndex),
+				track,
+				...tracks.audio.slice(audioInsertIndex),
+			],
+		};
+	}
+
+	const overlayInsertIndex = Math.max(
+		0,
+		Math.min(insertIndex, tracks.overlay.length),
+	);
+	return {
+		...tracks,
+		overlay: [
+			...tracks.overlay.slice(0, overlayInsertIndex),
+			track,
+			...tracks.overlay.slice(overlayInsertIndex),
+		],
+	};
 }

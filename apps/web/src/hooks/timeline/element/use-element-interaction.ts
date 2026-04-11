@@ -8,11 +8,11 @@ import {
 } from "react";
 import { useEditor } from "@/hooks/use-editor";
 import { useShiftKey } from "@/hooks/use-shift-key";
-import { useTimelineStore } from "@/stores/timeline-store";
 import { useElementSelection } from "@/hooks/timeline/element/use-element-selection";
 import { BASE_TIMELINE_PIXELS_PER_SECOND } from "@/lib/timeline/scale";
+import { TICKS_PER_SECOND } from "@/lib/wasm";
 import { TIMELINE_DRAG_THRESHOLD_PX } from "@/components/editor/panels/timeline/interaction";
-import { snapTimeToFrame } from "opencut-wasm";
+import { roundToFrame } from "opencut-wasm";
 import { computeDropTarget } from "@/components/editor/panels/timeline/drop-target";
 import { getMouseTimeFromClientX } from "@/lib/timeline/drag-utils";
 import { generateUUID } from "@/utils/id";
@@ -21,6 +21,7 @@ import { registerCanceller } from "@/lib/cancel-interaction";
 import type {
 	DropTarget,
 	ElementDragState,
+	SceneTracks,
 	TimelineElement,
 	TimelineTrack,
 } from "@/lib/timeline";
@@ -68,7 +69,8 @@ function getClickOffsetTime({
 	zoomLevel: number;
 }): number {
 	const clickOffsetX = clientX - elementRect.left;
-	return clickOffsetX / (BASE_TIMELINE_PIXELS_PER_SECOND * zoomLevel);
+	const seconds = clickOffsetX / (BASE_TIMELINE_PIXELS_PER_SECOND * zoomLevel);
+	return Math.round(seconds * TICKS_PER_SECOND);
 }
 
 function getVerticalDragDirection({
@@ -100,7 +102,7 @@ function getDragDropTarget({
 	clientY: number;
 	elementId: string;
 	trackId: string;
-	tracks: TimelineTrack[];
+	tracks: SceneTracks;
 	tracksContainerRef: RefObject<HTMLDivElement | null>;
 	tracksScrollRef: RefObject<HTMLDivElement | null>;
 	headerRef?: RefObject<HTMLElement | null>;
@@ -112,7 +114,11 @@ function getDragDropTarget({
 	const scrollContainer = tracksScrollRef.current;
 	if (!containerRect || !scrollContainer) return null;
 
-	const sourceTrack = tracks.find(({ id }) => id === trackId);
+	const sourceTrack = [
+		...tracks.overlay,
+		tracks.main,
+		...tracks.audio,
+	].find(({ id }) => id === trackId);
 	const movingElement = sourceTrack?.elements.find(
 		({ id }) => id === elementId,
 	);
@@ -161,9 +167,13 @@ export function useElementInteraction({
 	onSnapPointChange,
 }: UseElementInteractionProps) {
 	const editor = useEditor();
-	const rippleEditingEnabled = useTimelineStore((s) => s.rippleEditingEnabled);
 	const isShiftHeldRef = useShiftKey();
-	const tracks = editor.timeline.getTracks();
+	const sceneTracks = editor.scenes.getActiveScene().tracks;
+	const tracks = [
+		...sceneTracks.overlay,
+		sceneTracks.main,
+		...sceneTracks.audio,
+	];
 	const {
 		isElementSelected,
 		selectElement,
@@ -242,7 +252,7 @@ export function useElementInteraction({
 			const startSnap = snapElementEdge({
 				targetTime: frameSnappedTime,
 				elementDuration,
-				tracks,
+				tracks: sceneTracks,
 				playheadTime,
 				zoomLevel,
 				excludeElementId: movingElement.id,
@@ -252,7 +262,7 @@ export function useElementInteraction({
 			const endSnap = snapElementEdge({
 				targetTime: frameSnappedTime,
 				elementDuration,
-				tracks,
+				tracks: sceneTracks,
 				playheadTime,
 				zoomLevel,
 				excludeElementId: movingElement.id,
@@ -299,14 +309,17 @@ export function useElementInteraction({
 						zoomLevel,
 						scrollLeft,
 					});
-					const adjustedTime = Math.max(
-						0,
-						mouseTime - pendingDragRef.current.clickOffsetTime,
-					);
-				const snappedTime = snapTimeToFrame({ time: adjustedTime, fps: activeProject.settings.fps });
-					startDrag({
-						...pendingDragRef.current,
-						initialCurrentTime: snappedTime,
+				const adjustedTime = Math.max(
+					0,
+					mouseTime - pendingDragRef.current.clickOffsetTime,
+				);
+				const snappedTime = roundToFrame({
+					time: adjustedTime,
+					rate: activeProject.settings.fps,
+				}) ?? adjustedTime;
+				startDrag({
+					...pendingDragRef.current,
+					initialCurrentTime: snappedTime,
 						initialCurrentMouseY: clientY,
 					});
 					startedDragThisEvent = true;
@@ -346,7 +359,7 @@ export function useElementInteraction({
 			});
 			const adjustedTime = Math.max(0, mouseTime - dragState.clickOffsetTime);
 			const fps = activeProject.settings.fps;
-			const frameSnappedTime = snapTimeToFrame({ time: adjustedTime, fps });
+			const frameSnappedTime = roundToFrame({ time: adjustedTime, rate: fps }) ?? adjustedTime;
 
 			const sourceTrack = tracks.find(({ id }) => id === dragState.trackId);
 			const movingElement = sourceTrack?.elements.find(
@@ -373,7 +386,7 @@ export function useElementInteraction({
 					clientY,
 					elementId: dragState.elementId,
 					trackId: dragState.trackId,
-					tracks,
+					tracks: sceneTracks,
 					tracksContainerRef,
 					tracksScrollRef,
 					headerRef,
@@ -433,7 +446,7 @@ export function useElementInteraction({
 				clientY,
 				elementId: dragState.elementId,
 				trackId: dragState.trackId,
-				tracks,
+				tracks: sceneTracks,
 				tracksContainerRef,
 				tracksScrollRef,
 				headerRef,
@@ -457,6 +470,18 @@ export function useElementInteraction({
 				onSnapPointChange?.(null);
 				return;
 			}
+			const movingElement =
+				sourceTrack.elements.find(({ id }) => id === dragState.elementId) ?? null;
+			if (
+				movingElement &&
+				!dropTarget.isNewTrack &&
+				tracks[dropTarget.trackIndex]?.id === dragState.trackId &&
+				snappedTime === movingElement.startTime
+			) {
+				endDrag();
+				onSnapPointChange?.(null);
+				return;
+			}
 
 			if (dropTarget.isNewTrack) {
 				const newTrackId = generateUUID();
@@ -467,7 +492,6 @@ export function useElementInteraction({
 					elementId: dragState.elementId,
 					newStartTime: snappedTime,
 					createTrack: { type: sourceTrack.type, index: dropTarget.trackIndex },
-					rippleEnabled: rippleEditingEnabled,
 				});
 				selectElement({ trackId: newTrackId, elementId: dragState.elementId });
 			} else {
@@ -478,7 +502,6 @@ export function useElementInteraction({
 						targetTrackId: targetTrack.id,
 						elementId: dragState.elementId,
 						newStartTime: snappedTime,
-						rippleEnabled: rippleEditingEnabled,
 					});
 					if (targetTrack.id !== dragState.trackId) {
 						selectElement({
@@ -509,7 +532,6 @@ export function useElementInteraction({
 		tracksContainerRef,
 		tracksScrollRef,
 		headerRef,
-		rippleEditingEnabled,
 		selectElement,
 	]);
 

@@ -15,7 +15,6 @@ import {
 	PlusSignIcon,
 	RotateClockwiseIcon,
 } from "@hugeicons/core-free-icons";
-import { TIME_EPSILON_SECONDS } from "@/constants/animation-constants";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ColorPicker } from "@/components/ui/color-picker";
@@ -88,7 +87,9 @@ export function MasksTab({ element, trackId }: MasksTabProps) {
 			fallback: element,
 		});
 	const maskDefs = masksRegistry.getAll();
-	const tracks = useEditor((e) => e.timeline.getRenderTracks());
+	const tracks = useEditor(
+		(e) => e.timeline.getPreviewTracks() ?? e.scenes.getActiveScene().tracks,
+	);
 	const currentTime = useEditor((e) => e.playback.getCurrentTime());
 	const mediaAssets = useEditor((e) => e.media.getAssets());
 	const canvasSize = useEditor(
@@ -102,7 +103,7 @@ export function MasksTab({ element, trackId }: MasksTabProps) {
 	const elementBounds = useMemo(() => {
 		const clampedTime = Math.min(
 			Math.max(currentTime, element.startTime),
-			element.startTime + element.duration - TIME_EPSILON_SECONDS,
+			element.startTime + element.duration - 1,
 		);
 
 		return (
@@ -165,7 +166,7 @@ export function MasksTab({ element, trackId }: MasksTabProps) {
 					{
 						trackId,
 						elementId: element.id,
-						updates: {
+						patch: {
 							masks: [
 								buildDefaultMaskInstance({
 									maskType,
