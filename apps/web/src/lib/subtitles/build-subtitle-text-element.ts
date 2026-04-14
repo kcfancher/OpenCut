@@ -5,6 +5,7 @@ import {
 	setCanvasLetterSpacing,
 } from "@/lib/text/layout";
 import { DEFAULTS } from "@/lib/timeline/defaults";
+import { TICKS_PER_SECOND } from "@/lib/wasm";
 import type { CreateTextElement } from "@/lib/timeline";
 import type { SubtitleCue, SubtitleStyleOverrides } from "./types";
 
@@ -309,8 +310,8 @@ export function buildSubtitleTextElement({
 		...DEFAULTS.text.element,
 		name: `Caption ${index + 1}`,
 		content,
-		duration: caption.duration,
-		startTime: caption.startTime,
+		duration: Math.round(caption.duration * TICKS_PER_SECOND),
+		startTime: Math.round(caption.startTime * TICKS_PER_SECOND),
 		fontSize: style.fontSize,
 		fontFamily: style.fontFamily,
 		color: style.color,
