@@ -1,4 +1,3 @@
-import { FONT_SIZE_SCALE_REFERENCE } from "@/constants/text-constants";
 import type {
 	ParseSubtitleResult,
 	SubtitleCue,
@@ -368,7 +367,6 @@ function mapAssStyleToSubtitleStyle({
 	hasUnsupportedFeatures: boolean;
 } {
 	const fontSize = parseFloat(style.fontsize ?? "");
-	const fontSizeRatio = FONT_SIZE_SCALE_REFERENCE / scriptInfo.playResY;
 	const primaryColor = parseAssColor({ input: style.primarycolour });
 	const backColor = parseAssColor({ input: style.backcolour });
 	const bold = parseAssBoolean({ input: style.bold });
@@ -381,9 +379,11 @@ function mapAssStyleToSubtitleStyle({
 	const marginLeft = parseFloat(style.marginl ?? "");
 	const marginRight = parseFloat(style.marginr ?? "");
 	const marginVertical = parseFloat(style.marginv ?? "");
-	const mappedFontSize = Number.isFinite(fontSize)
-		? Math.round(fontSize * fontSizeRatio * 1000) / 1000
-		: Number.NaN;
+	// Store as a ratio of playResY so the builder can convert to app units
+	// without the parser needing to know the app's coordinate system.
+	const fontSizeRatioOfPlayHeight = Number.isFinite(fontSize)
+		? Math.round((fontSize / scriptInfo.playResY) * 1000) / 1000
+		: null;
 
 	const mappedAlignment =
 		ALIGNMENT_MAP[Math.round(alignment)] ?? ALIGNMENT_MAP[2];
@@ -408,8 +408,8 @@ function mapAssStyleToSubtitleStyle({
 
 	const styleOverrides: SubtitleStyleOverrides = {
 		...(style.fontname ? { fontFamily: style.fontname.trim() } : {}),
-		...(Number.isFinite(mappedFontSize) && mappedFontSize > 0
-			? { fontSize: mappedFontSize }
+		...(fontSizeRatioOfPlayHeight !== null && fontSizeRatioOfPlayHeight > 0
+			? { fontSizeRatioOfPlayHeight }
 			: {}),
 		...(primaryColor?.cssColor ? { color: primaryColor.cssColor } : {}),
 		...(bold !== null ? { fontWeight: bold ? "bold" : "normal" } : {}),

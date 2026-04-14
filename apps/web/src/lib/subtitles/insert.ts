@@ -1,5 +1,4 @@
 import type { EditorCore } from "@/core";
-import type { Command } from "@/lib/commands";
 import {
 	AddTrackCommand,
 	BatchCommand,
@@ -33,10 +32,8 @@ export function insertCaptionChunksAsTextTrack({
 				}),
 			}),
 	);
-	const commands = [addTrackCommand, ...insertCommands] as unknown as Command[];
-
 	editor.command.execute({
-		command: new BatchCommand(commands),
+		command: new BatchCommand([addTrackCommand, ...insertCommands]),
 	});
 
 	return trackId;

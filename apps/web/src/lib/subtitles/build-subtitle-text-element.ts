@@ -11,6 +11,7 @@ import type { SubtitleCue, SubtitleStyleOverrides } from "./types";
 const SUBTITLE_MAX_WIDTH_RATIO = 0.8;
 const SUBTITLE_BOTTOM_MARGIN_RATIO = 0.05;
 const SUBTITLE_FONT_SIZE = 5;
+const MEASUREMENT_CANVAS_SIZE = 4096;
 
 function quoteFontFamily({ fontFamily }: { fontFamily: string }): string {
 	return `"${fontFamily.replace(/"/g, '\\"')}"`;
@@ -18,8 +19,8 @@ function quoteFontFamily({ fontFamily }: { fontFamily: string }): string {
 
 function createMeasurementContext(): CanvasRenderingContext2D | null {
 	const canvas = document.createElement("canvas");
-	canvas.width = 4096;
-	canvas.height = 4096;
+	canvas.width = MEASUREMENT_CANVAS_SIZE;
+	canvas.height = MEASUREMENT_CANVAS_SIZE;
 	return canvas.getContext("2d");
 }
 
@@ -100,7 +101,6 @@ function measureWrappedTextBlock({
 	const block = measureTextBlock({
 		lineMetrics,
 		lineHeightPx,
-		fallbackFontSize: scaledFontSize,
 	});
 	const visualRect = getTextVisualRect({
 		textAlign,
@@ -132,9 +132,14 @@ function resolveSubtitleStyle({
 	background: CreateTextElement["background"];
 	placement: NonNullable<SubtitleStyleOverrides["placement"]>;
 } {
+	const fontSize =
+		style?.fontSizeRatioOfPlayHeight != null
+			? style.fontSizeRatioOfPlayHeight * FONT_SIZE_SCALE_REFERENCE
+			: (style?.fontSize ?? SUBTITLE_FONT_SIZE);
+
 	return {
 		fontFamily: style?.fontFamily ?? DEFAULTS.text.element.fontFamily,
-		fontSize: style?.fontSize ?? SUBTITLE_FONT_SIZE,
+		fontSize,
 		color: style?.color ?? DEFAULTS.text.element.color,
 		textAlign: style?.textAlign ?? "center",
 		fontWeight: style?.fontWeight ?? "bold",

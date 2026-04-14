@@ -8,7 +8,7 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useRef, useState } from "react";
+import { useReducer, useRef, useState } from "react";
 import { extractTimelineAudio } from "@/lib/media/mediabunny";
 import { useEditor } from "@/hooks/use-editor";
 import {
@@ -35,40 +35,72 @@ import {
 
 type CaptionsView = "generate" | "import";
 
+type ProcessingState =
+	| { status: "idle"; error: string | null; warnings: string[] }
+	| { status: "processing"; step: string };
+
+type ProcessingAction =
+	| { type: "start"; step: string }
+	| { type: "update_step"; step: string }
+	| { type: "succeed"; warnings: string[] }
+	| { type: "fail"; error: string };
+
+const IDLE_STATE: ProcessingState = { status: "idle", error: null, warnings: [] };
+
+function processingReducer(
+	state: ProcessingState,
+	action: ProcessingAction,
+): ProcessingState {
+	switch (action.type) {
+		case "start":
+			return { status: "processing", step: action.step };
+		case "update_step":
+			if (state.status !== "processing") return state;
+			return { status: "processing", step: action.step };
+		case "succeed":
+			return { status: "idle", error: null, warnings: action.warnings };
+		case "fail":
+			return { status: "idle", error: action.error, warnings: [] };
+	}
+}
+
 export function Captions() {
 	const [view, setView] = useState<CaptionsView>("generate");
 	const [selectedLanguage, setSelectedLanguage] =
 		useState<TranscriptionLanguage>("auto");
-	const [isProcessing, setIsProcessing] = useState(false);
-	const [processingStep, setProcessingStep] = useState("");
-	const [error, setError] = useState<string | null>(null);
-	const [warnings, setWarnings] = useState<string[]>([]);
+	const [processing, dispatch] = useReducer(processingReducer, IDLE_STATE);
 	const containerRef = useRef<HTMLDivElement>(null);
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const editor = useEditor();
 
+	const isProcessing = processing.status === "processing";
+
 	const handleProgress = (progress: TranscriptionProgress) => {
 		if (progress.status === "loading-model") {
-			setProcessingStep(`Loading model ${Math.round(progress.progress)}%`);
+			dispatch({
+				type: "update_step",
+				step: `Loading model ${Math.round(progress.progress)}%`,
+			});
 		} else if (progress.status === "transcribing") {
-			setProcessingStep("Transcribing...");
+			dispatch({ type: "update_step", step: "Transcribing..." });
 		}
 	};
 
-	const handleGenerateTranscript = async () => {
-		try {
-			setIsProcessing(true);
-			setError(null);
-			setWarnings([]);
-			setProcessingStep("Extracting audio...");
+	const insertCaptions = ({ captions }: { captions: CaptionChunk[] }): boolean => {
+		const trackId = insertCaptionChunksAsTextTrack({ editor, captions });
+		return trackId !== null;
+	};
 
+	const handleGenerateTranscript = async () => {
+		dispatch({ type: "start", step: "Extracting audio..." });
+		try {
 			const audioBlob = await extractTimelineAudio({
 				tracks: editor.scenes.getActiveScene().tracks,
 				mediaAssets: editor.media.getAssets(),
 				totalDuration: editor.timeline.getTotalDuration(),
 			});
 
-			setProcessingStep("Preparing audio...");
+			dispatch({ type: "update_step", step: "Preparing audio..." });
 			const { samples } = await decodeAudioToFloat32({
 				audioBlob,
 				sampleRate: DEFAULT_TRANSCRIPTION_SAMPLE_RATE,
@@ -80,28 +112,21 @@ export function Captions() {
 				onProgress: handleProgress,
 			});
 
-			setProcessingStep("Generating captions...");
+			dispatch({ type: "update_step", step: "Generating captions..." });
 			const captionChunks = buildCaptionChunks({ segments: result.segments });
-			insertCaptionChunks({ captions: captionChunks });
+
+			if (!insertCaptions({ captions: captionChunks })) {
+				dispatch({ type: "fail", error: "No captions were generated" });
+				return;
+			}
+
+			dispatch({ type: "succeed", warnings: [] });
 		} catch (error) {
 			console.error("Transcription failed:", error);
-			setError(
-				error instanceof Error ? error.message : "An unexpected error occurred",
-			);
-		} finally {
-			setIsProcessing(false);
-			setProcessingStep("");
-		}
-	};
-
-	const insertCaptionChunks = ({ captions }: { captions: CaptionChunk[] }) => {
-		const trackId = insertCaptionChunksAsTextTrack({
-			editor,
-			captions,
-		});
-
-		if (!trackId) {
-			throw new Error("No captions were generated");
+			dispatch({
+				type: "fail",
+				error: error instanceof Error ? error.message : "An unexpected error occurred",
+			});
 		}
 	};
 
@@ -110,12 +135,8 @@ export function Captions() {
 	};
 
 	const handleImportFile = async ({ file }: { file: File }) => {
+		dispatch({ type: "start", step: "Reading subtitle file..." });
 		try {
-			setIsProcessing(true);
-			setError(null);
-			setWarnings([]);
-			setProcessingStep("Reading subtitle file...");
-
 			const input = await file.text();
 			const result = parseSubtitleFile({
 				fileName: file.name,
@@ -123,13 +144,19 @@ export function Captions() {
 			});
 
 			if (result.captions.length === 0) {
-				throw new Error(
-					"No valid subtitle cues were found in the subtitle file",
-				);
+				dispatch({
+					type: "fail",
+					error: "No valid subtitle cues were found in the subtitle file",
+				});
+				return;
 			}
 
-			setProcessingStep("Importing subtitles...");
-			insertCaptionChunks({ captions: result.captions });
+			dispatch({ type: "update_step", step: "Importing subtitles..." });
+
+			if (!insertCaptions({ captions: result.captions })) {
+				dispatch({ type: "fail", error: "No captions were generated" });
+				return;
+			}
 
 			const nextWarnings = [...result.warnings];
 			if (result.skippedCueCount > 0) {
@@ -137,17 +164,14 @@ export function Captions() {
 					`Imported ${result.captions.length} subtitle cue(s) and skipped ${result.skippedCueCount} malformed cue(s).`,
 				);
 			}
-			if (nextWarnings.length > 0) {
-				setWarnings(nextWarnings);
-			}
+
+			dispatch({ type: "succeed", warnings: nextWarnings });
 		} catch (error) {
 			console.error("Subtitle import failed:", error);
-			setError(
-				error instanceof Error ? error.message : "An unexpected error occurred",
-			);
-		} finally {
-			setIsProcessing(false);
-			setProcessingStep("");
+			dispatch({
+				type: "fail",
+				error: error instanceof Error ? error.message : "An unexpected error occurred",
+			});
 		}
 	};
 
@@ -177,6 +201,9 @@ export function Captions() {
 		if (!matchedLanguage) return;
 		setSelectedLanguage(matchedLanguage.code);
 	};
+
+	const error = processing.status === "idle" ? processing.error : null;
+	const warnings = processing.status === "idle" ? processing.warnings : [];
 
 	return (
 		<PanelView
@@ -236,7 +263,7 @@ export function Captions() {
 							disabled={isProcessing}
 						>
 							{isProcessing && <Spinner className="mr-1" />}
-							{isProcessing ? processingStep : "Generate transcript"}
+							{isProcessing ? processing.step : "Generate transcript"}
 						</Button>
 						{error && (
 							<div className="bg-destructive/10 border-destructive/20 rounded-md border p-3">
@@ -264,7 +291,7 @@ export function Captions() {
 							disabled={isProcessing}
 						>
 							{isProcessing && <Spinner className="mr-1" />}
-							{isProcessing ? processingStep : "Import subtitles"}
+							{isProcessing ? processing.step : "Import subtitles"}
 						</Button>
 						{error && (
 							<div className="bg-destructive/10 border-destructive/20 rounded-md border p-3">
