@@ -7,7 +7,6 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useReducer, useRef, useState } from "react";
 import { extractTimelineAudio } from "@/lib/media/mediabunny";
 import { useEditor } from "@/hooks/use-editor";
@@ -32,8 +31,8 @@ import {
 	SectionField,
 	SectionFields,
 } from "@/components/section";
-
-type CaptionsView = "generate" | "import";
+import { CloudUploadIcon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 
 type ProcessingState =
 	| { status: "idle"; error: string | null; warnings: string[] }
@@ -65,7 +64,6 @@ function processingReducer(
 }
 
 export function Captions() {
-	const [view, setView] = useState<CaptionsView>("generate");
 	const [selectedLanguage, setSelectedLanguage] =
 		useState<TranscriptionLanguage>("auto");
 	const [processing, dispatch] = useReducer(processingReducer, IDLE_STATE);
@@ -207,17 +205,20 @@ export function Captions() {
 
 	return (
 		<PanelView
+			title="Captions"
 			contentClassName="px-0 flex flex-col h-full"
 			actions={
-				<Tabs
-					value={view}
-					onValueChange={(value) => setView(value as CaptionsView)}
+				<Button
+					type="button"
+					variant="outline"
+					size="sm"
+					onClick={handleImportClick}
+					disabled={isProcessing}
+					className="items-center justify-center gap-1.5"
 				>
-					<TabsList>
-						<TabsTrigger value="generate">Generate</TabsTrigger>
-						<TabsTrigger value="import">Import</TabsTrigger>
-					</TabsList>
-				</Tabs>
+					<HugeiconsIcon icon={CloudUploadIcon} />
+					Import
+				</Button>
 			}
 			ref={containerRef}
 		>
@@ -228,88 +229,54 @@ export function Captions() {
 				className="hidden"
 				onChange={(event) => void handleFileChange({ event })}
 			/>
-			{view === "generate" && (
-				<Section
-					showTopBorder={false}
-					showBottomBorder={false}
-					className="flex-1"
-				>
-					<SectionContent className="flex flex-col gap-4 h-full pt-1">
-						<SectionFields>
-							<SectionField label="Language">
-								<Select
-									value={selectedLanguage}
-									onValueChange={(value) => handleLanguageChange({ value })}
-								>
-									<SelectTrigger>
-										<SelectValue placeholder="Select a language" />
-									</SelectTrigger>
-									<SelectContent>
-										<SelectItem value="auto">Auto detect</SelectItem>
-										{TRANSCRIPTION_LANGUAGES.map((language) => (
-											<SelectItem key={language.code} value={language.code}>
-												{language.name}
-											</SelectItem>
-										))}
-									</SelectContent>
-								</Select>
-							</SectionField>
-						</SectionFields>
-
-						<Button
-							type="button"
-							className="mt-auto w-full"
-							onClick={handleGenerateTranscript}
-							disabled={isProcessing}
-						>
-							{isProcessing && <Spinner className="mr-1" />}
-							{isProcessing ? processing.step : "Generate transcript"}
-						</Button>
-						{error && (
-							<div className="bg-destructive/10 border-destructive/20 rounded-md border p-3">
-								<p className="text-destructive text-sm">{error}</p>
-							</div>
-						)}
-					</SectionContent>
-				</Section>
-			)}
-			{view === "import" && (
-				<Section
-					showTopBorder={false}
-					showBottomBorder={false}
-					className="flex-1"
-				>
-					<SectionContent className="flex flex-col gap-4 h-full pt-1">
-						<p className="text-muted-foreground text-sm">
-							Import an existing <code>.srt</code> or <code>.ass</code> subtitle
-							file into the timeline.
-						</p>
-						<Button
-							type="button"
-							className="mt-auto w-full"
-							onClick={handleImportClick}
-							disabled={isProcessing}
-						>
-							{isProcessing && <Spinner className="mr-1" />}
-							{isProcessing ? processing.step : "Import subtitles"}
-						</Button>
-						{error && (
-							<div className="bg-destructive/10 border-destructive/20 rounded-md border p-3">
-								<p className="text-destructive text-sm">{error}</p>
-							</div>
-						)}
-						{warnings.length > 0 && (
-							<div className="rounded-md border border-amber-500/20 bg-amber-500/10 p-3">
-								<ul className="space-y-1 text-sm text-amber-700">
-									{warnings.map((warning) => (
-										<li key={warning}>{warning}</li>
+			<Section showTopBorder={false} showBottomBorder={false} className="flex-1">
+				<SectionContent className="flex flex-col gap-4 h-full pt-1">
+					<SectionFields>
+						<SectionField label="Language">
+							<Select
+								value={selectedLanguage}
+								onValueChange={(value) => handleLanguageChange({ value })}
+							>
+								<SelectTrigger>
+									<SelectValue placeholder="Select a language" />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value="auto">Auto detect</SelectItem>
+									{TRANSCRIPTION_LANGUAGES.map((language) => (
+										<SelectItem key={language.code} value={language.code}>
+											{language.name}
+										</SelectItem>
 									))}
-								</ul>
-							</div>
-						)}
-					</SectionContent>
-				</Section>
-			)}
+								</SelectContent>
+							</Select>
+						</SectionField>
+					</SectionFields>
+
+					<Button
+						type="button"
+						className="mt-auto w-full"
+						onClick={handleGenerateTranscript}
+						disabled={isProcessing}
+					>
+						{isProcessing && <Spinner className="mr-1" />}
+						{isProcessing ? processing.step : "Generate transcript"}
+					</Button>
+					{error && (
+						<div className="bg-destructive/10 border-destructive/20 rounded-md border p-3">
+							<p className="text-destructive text-sm">{error}</p>
+						</div>
+					)}
+					{warnings.length > 0 && (
+						<div className="rounded-md border border-amber-500/20 bg-amber-500/10 p-3">
+							<ul className="space-y-1 text-sm text-amber-700">
+								{warnings.map((warning) => (
+									<li key={warning}>{warning}</li>
+								))}
+							</ul>
+						</div>
+					)}
+				</SectionContent>
+			</Section>
 		</PanelView>
 	);
 }
